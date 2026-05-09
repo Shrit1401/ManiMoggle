@@ -1,65 +1,139 @@
-import Image from "next/image";
+"use client";
+
+import { useState, useEffect } from "react";
+import { useRouter } from "next/navigation";
+import { useMutation } from "convex/react";
+import { api } from "../convex/_generated/api";
+
+function useLocalStorage(key: string) {
+  const [value, setValue] = useState("");
+  useEffect(() => { setValue(localStorage.getItem(key) ?? ""); }, [key]);
+  const set = (v: string) => { localStorage.setItem(key, v); setValue(v); };
+  return [value, set] as const;
+}
+
+function useSessionId() {
+  const [id, setId] = useState("");
+  useEffect(() => {
+    let s = localStorage.getItem("manimoggle_session");
+    if (!s) { s = crypto.randomUUID(); localStorage.setItem("manimoggle_session", s); }
+    setId(s);
+  }, []);
+  return id;
+}
 
 export default function Home() {
+  const router = useRouter();
+  const sessionId = useSessionId();
+  const [name, setName] = useLocalStorage("manimoggle_name");
+  const [joinCode, setJoinCode] = useState("");
+  const [error, setError] = useState("");
+  const [loading, setLoading] = useState<"create" | "join" | null>(null);
+
+  const createRoom = useMutation(api.rooms.create);
+  const joinRoom   = useMutation(api.rooms.join);
+
+  const handleCreate = async () => {
+    if (!name.trim() || !sessionId) return;
+    setLoading("create"); setError("");
+    try {
+      const { code } = await createRoom({ sessionId, name: name.trim().toUpperCase() });
+      router.push(`/room/${code}`);
+    } catch {
+      setError("Failed to create room"); setLoading(null);
+    }
+  };
+
+  const handleJoin = async () => {
+    if (!name.trim() || joinCode.length < 6 || !sessionId) return;
+    setLoading("join"); setError("");
+    try {
+      const result = await joinRoom({ code: joinCode.trim().toUpperCase(), sessionId, name: name.trim().toUpperCase() });
+      if ("error" in result) { setError(result.error ?? "Room not found"); setLoading(null); }
+      else router.push(`/room/${result.code}`);
+    } catch {
+      setError("Failed to join room"); setLoading(null);
+    }
+  };
+
   return (
-    <div className="flex flex-col flex-1 items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex flex-1 w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
-        />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the page.tsx file.
+    <main className="flex-1 flex flex-col items-center justify-center bg-black min-h-[100dvh] px-5">
+      {/* corner brackets */}
+      {["top-4 left-4 border-t-2 border-l-2","top-4 right-4 border-t-2 border-r-2",
+        "bottom-4 left-4 border-b-2 border-l-2","bottom-4 right-4 border-b-2 border-r-2"].map(c => (
+        <span key={c} className={`fixed ${c} w-6 h-6 border-white/15 pointer-events-none`} />
+      ))}
+
+      <div className="w-full max-w-sm flex flex-col items-center gap-6">
+        {/* logo */}
+        <div className="text-center mb-1">
+          <div className="flex items-center justify-center gap-2 mb-2">
+            <div className="w-6 h-[1px] bg-white/20" />
+            <span className="font-mono text-[8px] tracking-[0.4em] uppercase text-white/30">Face · Battle · Arena</span>
+            <div className="w-6 h-[1px] bg-white/20" />
+          </div>
+          <h1 className="font-mono font-black text-[32px] sm:text-[38px] tracking-[0.3em] uppercase text-white leading-none">
+            MANIMOGGLE
           </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
-          </p>
         </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={16}
-            />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
+
+        {/* name */}
+        <div className="w-full flex flex-col gap-1.5">
+          <label className="font-mono text-[8px] tracking-[0.3em] uppercase text-white/35 pl-1">
+            Your Name
+          </label>
+          <input
+            value={name}
+            onChange={e => setName(e.target.value.toUpperCase().slice(0, 14))}
+            onKeyDown={e => { if (e.key === "Enter") handleCreate(); }}
+            placeholder="ENTER NAME"
+            autoCapitalize="characters"
+            className="w-full bg-white/[0.05] ring-1 ring-white/15 rounded-xl px-4 py-3.5 font-mono text-sm text-white placeholder:text-white/20 tracking-[0.15em] uppercase outline-none focus:ring-white/35 transition-all"
+          />
         </div>
-      </main>
-    </div>
+
+        {/* create */}
+        <button
+          onClick={handleCreate}
+          disabled={!name.trim() || !sessionId || !!loading}
+          className="w-full rounded-full py-4 font-mono text-[11px] tracking-[0.28em] uppercase transition-all
+            bg-cyan-500/20 hover:bg-cyan-500/30 active:scale-[0.98] ring-1 ring-cyan-400/35 text-cyan-300
+            disabled:opacity-25 disabled:cursor-not-allowed disabled:active:scale-100
+            shadow-[0_0_30px_rgba(34,211,238,0.07)]"
+        >
+          {loading === "create" ? "Creating…" : "Create Room"}
+        </button>
+
+        {/* divider */}
+        <div className="flex items-center gap-3 w-full">
+          <div className="flex-1 h-px bg-white/8" />
+          <span className="font-mono text-[8px] tracking-[0.3em] uppercase text-white/20">or join</span>
+          <div className="flex-1 h-px bg-white/8" />
+        </div>
+
+        {/* join */}
+        <div className="w-full flex gap-2">
+          <input
+            value={joinCode}
+            onChange={e => setJoinCode(e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 6))}
+            onKeyDown={e => { if (e.key === "Enter") handleJoin(); }}
+            placeholder="ABC123"
+            autoCapitalize="characters"
+            className="flex-1 bg-white/[0.05] ring-1 ring-white/15 rounded-xl px-4 py-3.5 font-mono text-sm text-white placeholder:text-white/20 tracking-[0.3em] uppercase outline-none focus:ring-white/35 transition-all"
+          />
+          <button
+            onClick={handleJoin}
+            disabled={!name.trim() || joinCode.length < 6 || !sessionId || !!loading}
+            className="rounded-xl bg-white/[0.07] hover:bg-white/[0.13] active:scale-[0.97] ring-1 ring-white/15 px-5 font-mono text-[11px] tracking-[0.18em] uppercase text-white transition-all disabled:opacity-25 disabled:cursor-not-allowed disabled:active:scale-100"
+          >
+            {loading === "join" ? "···" : "Join"}
+          </button>
+        </div>
+
+        {error && (
+          <p className="font-mono text-[9px] tracking-[0.2em] uppercase text-rose-400 -mt-2">{error}</p>
+        )}
+      </div>
+    </main>
   );
 }
