@@ -629,11 +629,16 @@ function RemoteVideo({ stream, snapshot, name }: {
   if (stream) {
     return (
       <video ref={ref} autoPlay playsInline muted
-        className="absolute inset-0 w-full h-full object-cover" />
+        className="absolute inset-0 w-full h-full"
+        style={{ objectFit: "cover", objectPosition: "center 20%" }} />
     );
   }
   if (snapshot) {
-    return <img src={snapshot} className="absolute inset-0 w-full h-full object-cover" alt={name} />;
+    return (
+      <img src={snapshot} alt={name}
+        className="absolute inset-0 w-full h-full"
+        style={{ objectFit: "cover", objectPosition: "center 20%" }} />
+    );
   }
   return (
     <div className="absolute inset-0 flex flex-col items-center justify-center gap-2">
@@ -641,7 +646,7 @@ function RemoteVideo({ stream, snapshot, name }: {
         flex items-center justify-center font-mono text-xl font-bold text-white/25">
         {name.charAt(0)}
       </div>
-      <span className="font-mono text-[7px] uppercase tracking-widest text-white/25">Waiting…</span>
+      <span className="font-mono text-[7px] uppercase tracking-widest text-white/25">Connecting…</span>
     </div>
   );
 }
@@ -661,11 +666,12 @@ function GroupScanView({ room, sessionId }: {
     scanProgress, samplesCollected,
   } = useFaceLandmarker();
 
-  const submitScore    = useMutation(api.players.submitScore);
-  const setSnapshotMut = useMutation(api.players.setSnapshot);
-  const startGroupMut  = useMutation(api.rooms.scheduleGroupScan);
-  const resetGroup     = useMutation(api.rooms.resetGroupScan);
-  const submittedRef   = useRef(false);
+  const submitScore      = useMutation(api.players.submitScore);
+  const setSnapshotMut   = useMutation(api.players.setSnapshot);
+  const startGroupMut    = useMutation(api.rooms.scheduleGroupScan);
+  const resetGroup       = useMutation(api.rooms.resetGroupScan);
+  const setPhaseMutation = useMutation(api.players.setPhase);
+  const submittedRef     = useRef(false);
 
   const [scanStartsAt, setScanStartsAt] = useState<number | null>(null);
   const [countdown, setCountdown]       = useState<number | null>(null);
@@ -728,6 +734,13 @@ function GroupScanView({ room, sessionId }: {
     return () => clearInterval(iv);
   }, [status, videoRef, room._id, sessionId, setSnapshotMut]);
 
+  // Mirror local scan phase → Convex so other players see status indicators
+  useEffect(() => {
+    if (phase === "scanning") {
+      void setPhaseMutation({ roomId: room._id as Id<"rooms">, sessionId, phase: "scanning" });
+    }
+  }, [phase, room._id, sessionId, setPhaseMutation]);
+
   // Auto-submit when scan completes
   useEffect(() => {
     if (phase !== "complete" || !scores || submittedRef.current) return;
@@ -742,9 +755,10 @@ function GroupScanView({ room, sessionId }: {
 
   const rankMedal = (i: number) => ["🥇","🥈","🥉"][i] ?? `#${i + 1}`;
 
-  // Grid: fill screen with no empty cells — dynamic rows + cols
+  // 1-2 players: single column (stacked vertically, full width)
+  // 3+ players: 2-column grid
   const n    = players.length;
-  const cols = n <= 1 ? 1 : 2;
+  const cols = n <= 2 ? 1 : 2;
   const rows = Math.ceil(n / cols);
 
   return (
@@ -837,24 +851,38 @@ function GroupScanView({ room, sessionId }: {
               {/* ── Dark gradient at bottom ── */}
               <div className="absolute inset-x-0 bottom-0 h-2/3 bg-gradient-to-t from-black/90 via-black/30 to-transparent pointer-events-none" />
 
-              {/* ── Score card (when done) ── */}
-              {isDone && myScore !== undefined && (
-                <div className="absolute bottom-0 inset-x-0 p-2.5">
-                  <div className="flex items-end gap-1.5">
-                    <span className="font-sans font-black text-[30px] tabular-nums leading-none text-white">
+              {/* ── Score card: live during own scan, locked when done ── */}
+              {isMe && scores && (phase === "scanning" || phase === "analyzing") ? (
+                <div className="absolute bottom-0 inset-x-0 p-3">
+                  <div className="flex items-end gap-2">
+                    <span className="font-sans font-black text-[36px] tabular-nums leading-none text-white drop-shadow-lg">
+                      {scores.overall.toFixed(1)}
+                    </span>
+                    <span className={`mb-1.5 font-mono text-[8px] font-bold tracking-widest uppercase leading-none
+                      ${phase === "analyzing" ? "text-amber-300 animate-pulse" : "text-white/35"}`}>
+                      {phase === "analyzing" ? "AI..." : "LIVE"}
+                    </span>
+                  </div>
+                  <p className="font-mono text-[8px] text-emerald-300 truncate leading-tight">{scores.dom.label}</p>
+                  <p className="font-mono text-[7px] text-rose-300/70 truncate">{scores.flaw.label}</p>
+                </div>
+              ) : isDone && myScore !== undefined ? (
+                <div className="absolute bottom-0 inset-x-0 p-3">
+                  <div className="flex items-end gap-2">
+                    <span className="font-sans font-black text-[36px] tabular-nums leading-none text-white drop-shadow-lg">
                       {myScore.toFixed(1)}
                     </span>
-                    <div className="mb-1 flex flex-col leading-none">
+                    <div className="mb-1.5 flex flex-col leading-none">
                       <span className="font-mono text-[8px] font-bold tracking-widest uppercase text-cyan-300">
                         {p.tierCode}
                       </span>
                       <span className="font-mono text-[7px] text-white/40">{p.level}</span>
                     </div>
                   </div>
-                  <p className="font-mono text-[7px] text-emerald-300 truncate">{p.domLabel}</p>
-                  <p className="font-mono text-[6.5px] text-rose-400/80 truncate">{p.flawLabel}</p>
+                  <p className="font-mono text-[8px] text-emerald-300 truncate leading-tight">{p.domLabel}</p>
+                  <p className="font-mono text-[7px] text-rose-400/80 truncate">{p.flawLabel}</p>
                 </div>
-              )}
+              ) : null}
 
               {/* ── Status indicators ── */}
               <div className="absolute top-2 inset-x-2 flex items-start justify-between">
