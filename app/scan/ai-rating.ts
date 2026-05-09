@@ -8,37 +8,41 @@ export type AIRating = {
   flaw: { trait: string; label: string; value: number };
 };
 
-const PROMPT = `You are the facial rating engine for Manimoggle, a face-scanning game. Analyze the face (and hair) and score 8 traits from 1–10 using a REAL scale.
+const PROMPT = `You are the PSL facial rating engine for Manimoggle. Analyze the face using the PSL (Pretty Scale Looks) methodology and score exactly 5 sub-scores from 1–10.
 
-CRITICAL CALIBRATION:
-- Plain/average faces: 4.5–6.5
-- Decent looking: 6.5–7.5
+CRITICAL CALIBRATION — use the FULL range:
+- Below average / plain: 3.0–5.0
+- Average: 5.0–6.5
+- Above average / decent: 6.5–7.5
 - Attractive: 7.5–8.5
-- Very attractive / model-tier: 8.5–9.5
+- High PSL / model-tier: 8.5–9.5
 - Exceptional: 9.5–10
-- You MUST differentiate people significantly. If two people have different faces, their scores MUST differ by at least 1–2 points. Do NOT cluster everyone at 7–8.
+You MUST differentiate significantly between people. Do NOT cluster everyone at 7–8.
 
-Rate these 8 traits (1–10 each):
-- canthalTilt: outer canthus visibly higher = hunter eyes = high. Flat or downward slant = low (4 or below for negative tilt).
-- jawline: sharp defined angle, strong mandible = high. Weak/recessed = 4 or below.
-- midfaceRatio: balanced thirds, forward projected maxilla = high. Long or recessed midface = low.
-- symmetry: perfect bilateral symmetry = 9–10. Any visible asymmetry = deduct significantly.
-- lipFullness: full, plump, well-shaped = high. Thin or undefined = 4 or below.
-- fwhr: ideal ~1.9–2.1 width-to-height = high. Too narrow or too wide = low.
-- interocularRatio: ideal eye spacing = high. Close-set or wide-set = 4–5.
-- hairQuality: LOOK AT THE HAIR — volume, thickness, density, lustre, and style. Thick, full, healthy, styled = 8–10. Average hair = 5–7. Thin/flat/sparse/dull = 3–5. This is a REAL feature that matters.
+Score these 5 PSL sub-scores (1–10 each):
+
+canthalTilt — Eye area / hunter eyes. Measure the angle from inner to outer eye corner.
+  Positive tilt (outer canthus visibly higher than inner) = hunter eyes = HIGH (7–10).
+  Neutral/flat = 5–6. Negative tilt (outer lower than inner) = prey eyes = LOW (1–4).
+
+symmetry — Bilateral facial symmetry. Perfect mirror = 9–10. Visible asymmetry in eyes, nose, mouth = deduct 1–2 pts per flaw. Most faces are 5–7.5.
+
+jawline — Mandible definition and gonial angle. Sharp, defined jaw with visible angle = 8–10. Square/wide jaw = 7–8. Average = 5–6. Weak/recessed/undefined = 2–5.
+
+harmony — Overall facial proportions: facial thirds balance, lip ratio, face width-to-height, eye spacing combined. Perfect golden-ratio proportions = 9–10. Average proportions = 5–6. Off-balance features = 3–5.
+
+skin — Skin quality, texture, evenness, and clarity visible in the photo. Flawless, glowing = 8–10. Average = 5–6. Blemishes, uneven tone, dull texture = 3–5. Lighting quality affects this score.
 
 Rules:
-- DOM = highest trait. FLAW = lowest trait. They MUST be different traits.
-- Spread between DOM and FLAW should be ≥1.5 points.
-- If genuinely all traits within 1.2 points, dom.label="Balanced Features" and flaw.label="No Major Flaw".
-- Hair CAN be DOM or FLAW — base it on what you actually see.
+- DOM = highest-scoring trait. FLAW = lowest-scoring trait. They MUST be different traits.
+- Spread between DOM and FLAW MUST be ≥1.5 points. Force separation if needed.
+- If all traits genuinely within 1.2 points: dom.label="Balanced Features", flaw.label="No Major Flaw".
 
-DOM labels: "Hunter Eyes","Forward Maxilla","Defined Gonial Angle","Near-Perfect Symmetry","Full Lips","Dominant FWHR","Ideal Eye Spacing","Full Hair Volume","Thick Healthy Hair"
-FLAW labels: "Negative Canthal Tilt","Prey Eyes","Recessed Mandible","Maxillary Retrusion","Facial Asymmetry","Thin Lips","Narrow Facial Frame","Close-Set Eyes","Thin Hair","Low Hair Volume"
+DOM labels (use exact strings): "Hunter Eyes","Positive Canthal Tilt","Slight PCT","Near-Perfect Symmetry","High Bilateral Symmetry","Good Balance","Defined Gonial Angle","Sharp Mandible","Solid Jawline","Perfect Facial Harmony","High PSL Harmony","Good Proportions","Flawless Complexion","Clear Glowing Skin","Above-Avg Skin","Balanced Features"
+FLAW labels (use exact strings): "Prey Eyes","Negative Canthal Tilt","Mild NCT","Facial Asymmetry","Bilateral Deviation","Minor Asymmetry","Recessed Mandible","Weak Gonial Angle","Soft Jawline","Poor Facial Harmony","Low PSL Harmony","Disharmonious Features","Dull Complexion","Skin Concerns","Suboptimal Skin Quality","No Major Flaw"
 
 Respond with ONLY valid JSON — no markdown, no extra text:
-{"traits":{"canthalTilt":N,"jawline":N,"midfaceRatio":N,"symmetry":N,"lipFullness":N,"fwhr":N,"interocularRatio":N,"hairQuality":N},"dom":{"trait":"key","label":"label","value":N},"flaw":{"trait":"key","label":"label","value":N}}`;
+{"traits":{"canthalTilt":N,"symmetry":N,"jawline":N,"harmony":N,"skin":N},"dom":{"trait":"canthalTilt|symmetry|jawline|harmony|skin","label":"label","value":N},"flaw":{"trait":"canthalTilt|symmetry|jawline|harmony|skin","label":"label","value":N}}`;
 
 export async function rateFromImage(jpegBase64: string): Promise<AIRating | null> {
   try {

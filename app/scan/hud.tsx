@@ -68,7 +68,7 @@ export function Hud({
           </p>
         )}
         <p className="font-mono uppercase tracking-[0.2em] text-[8px] text-white/50 mb-0.5">
-          Overall Score
+          PSL Score
         </p>
         <p className="font-sans font-semibold text-[44px] sm:text-[52px] text-white tabular-nums leading-none mb-1">
           {overallStr}

@@ -22,12 +22,21 @@ function useSessionId() {
   return id;
 }
 
+type Mode = "battle" | "tournament" | "group";
+
+const MODES: { id: Mode; label: string; sub: string; players: string }[] = [
+  { id: "battle",     label: "1v1 BATTLE",     sub: "Split-screen duel",        players: "2 players"   },
+  { id: "tournament", label: "TOURNAMENT",      sub: "Bracket · best face wins", players: "2–4 players" },
+  { id: "group",      label: "GROUP SCAN",      sub: "All scan · ranked by PSL", players: "2–8 players" },
+];
+
 export default function Home() {
-  const router = useRouter();
+  const router    = useRouter();
   const sessionId = useSessionId();
-  const [name, setName] = useLocalStorage("manimoggle_name");
+  const [name, setName]      = useLocalStorage("manimoggle_name");
   const [joinCode, setJoinCode] = useState("");
-  const [error, setError] = useState("");
+  const [mode, setMode]      = useState<Mode>("tournament");
+  const [error, setError]    = useState("");
   const [loading, setLoading] = useState<"create" | "join" | null>(null);
 
   const createRoom = useMutation(api.rooms.create);
@@ -37,7 +46,7 @@ export default function Home() {
     if (!name.trim() || !sessionId) return;
     setLoading("create"); setError("");
     try {
-      const { code } = await createRoom({ sessionId, name: name.trim().toUpperCase() });
+      const { code } = await createRoom({ sessionId, name: name.trim().toUpperCase(), mode });
       router.push(`/room/${code}`);
     } catch {
       setError("Failed to create room"); setLoading(null);
@@ -64,12 +73,12 @@ export default function Home() {
         <span key={c} className={`fixed ${c} w-6 h-6 border-white/15 pointer-events-none`} />
       ))}
 
-      <div className="w-full max-w-sm flex flex-col items-center gap-6">
+      <div className="w-full max-w-sm flex flex-col items-center gap-5">
         {/* logo */}
         <div className="text-center mb-1">
           <div className="flex items-center justify-center gap-2 mb-2">
             <div className="w-6 h-[1px] bg-white/20" />
-            <span className="font-mono text-[8px] tracking-[0.4em] uppercase text-white/30">Face · Battle · Arena</span>
+            <span className="font-mono text-[8px] tracking-[0.4em] uppercase text-white/30">PSL · Face · Arena</span>
             <div className="w-6 h-[1px] bg-white/20" />
           </div>
           <h1 className="font-mono font-black text-[32px] sm:text-[38px] tracking-[0.3em] uppercase text-white leading-none">
@@ -79,17 +88,46 @@ export default function Home() {
 
         {/* name */}
         <div className="w-full flex flex-col gap-1.5">
-          <label className="font-mono text-[8px] tracking-[0.3em] uppercase text-white/35 pl-1">
-            Your Name
-          </label>
+          <label className="font-mono text-[8px] tracking-[0.3em] uppercase text-white/35 pl-1">Your Name</label>
           <input
             value={name}
             onChange={e => setName(e.target.value.toUpperCase().slice(0, 14))}
             onKeyDown={e => { if (e.key === "Enter") handleCreate(); }}
             placeholder="ENTER NAME"
             autoCapitalize="characters"
-            className="w-full bg-white/[0.05] ring-1 ring-white/15 rounded-xl px-4 py-3.5 font-mono text-sm text-white placeholder:text-white/20 tracking-[0.15em] uppercase outline-none focus:ring-white/35 transition-all"
+            className="w-full bg-white/[0.05] ring-1 ring-white/15 rounded-xl px-4 py-3.5 font-mono text-sm
+              text-white placeholder:text-white/20 tracking-[0.15em] uppercase outline-none
+              focus:ring-white/35 transition-all"
           />
+        </div>
+
+        {/* mode selector */}
+        <div className="w-full flex flex-col gap-1.5">
+          <label className="font-mono text-[8px] tracking-[0.3em] uppercase text-white/35 pl-1">Mode</label>
+          <div className="grid grid-cols-3 gap-1.5">
+            {MODES.map(m => (
+              <button
+                key={m.id}
+                onClick={() => setMode(m.id)}
+                className={`flex flex-col items-center gap-1 rounded-xl px-2 py-3 transition-all
+                  ${mode === m.id
+                    ? "bg-cyan-500/15 ring-1 ring-cyan-400/40 text-cyan-300"
+                    : "bg-white/[0.03] ring-1 ring-white/10 text-white/35 hover:text-white/55 hover:bg-white/[0.06]"
+                  }`}
+              >
+                <span className={`font-mono text-[8px] font-bold tracking-[0.1em] uppercase leading-tight text-center
+                  ${mode === m.id ? "text-cyan-300" : "text-white/45"}`}>
+                  {m.label}
+                </span>
+                <span className="font-mono text-[6.5px] tracking-wide text-center leading-tight" style={{ color: "rgba(255,255,255,0.22)" }}>
+                  {m.players}
+                </span>
+              </button>
+            ))}
+          </div>
+          <p className="font-mono text-[7px] tracking-widest text-white/20 pl-1 text-center">
+            {MODES.find(m => m.id === mode)?.sub}
+          </p>
         </div>
 
         {/* create */}
@@ -119,12 +157,16 @@ export default function Home() {
             onKeyDown={e => { if (e.key === "Enter") handleJoin(); }}
             placeholder="ABC123"
             autoCapitalize="characters"
-            className="flex-1 bg-white/[0.05] ring-1 ring-white/15 rounded-xl px-4 py-3.5 font-mono text-sm text-white placeholder:text-white/20 tracking-[0.3em] uppercase outline-none focus:ring-white/35 transition-all"
+            className="flex-1 bg-white/[0.05] ring-1 ring-white/15 rounded-xl px-4 py-3.5 font-mono text-sm
+              text-white placeholder:text-white/20 tracking-[0.3em] uppercase outline-none
+              focus:ring-white/35 transition-all"
           />
           <button
             onClick={handleJoin}
             disabled={!name.trim() || joinCode.length < 6 || !sessionId || !!loading}
-            className="rounded-xl bg-white/[0.07] hover:bg-white/[0.13] active:scale-[0.97] ring-1 ring-white/15 px-5 font-mono text-[11px] tracking-[0.18em] uppercase text-white transition-all disabled:opacity-25 disabled:cursor-not-allowed disabled:active:scale-100"
+            className="rounded-xl bg-white/[0.07] hover:bg-white/[0.13] active:scale-[0.97] ring-1 ring-white/15
+              px-5 font-mono text-[11px] tracking-[0.18em] uppercase text-white transition-all
+              disabled:opacity-25 disabled:cursor-not-allowed disabled:active:scale-100"
           >
             {loading === "join" ? "···" : "Join"}
           </button>

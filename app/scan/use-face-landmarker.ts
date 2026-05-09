@@ -4,7 +4,7 @@ import { useRef, useState, useEffect, useCallback } from "react";
 import type { FaceLandmarker } from "@mediapipe/tasks-vision";
 import {
   scoreFace, smoothScores, aggregateMedian, traitsToVector,
-  buildScores, jitterTraits,
+  buildScores, jitterTraits, generateCandy, overallFromMean, traitMean,
 } from "./face-rating";
 import type { Scores, TraitKey } from "./face-rating";
 import { rateFromImage, captureVideoFrame } from "./ai-rating";
@@ -191,15 +191,49 @@ export function useFaceLandmarker() {
           catch { rafRef.current = requestAnimationFrame(loop); return; }
 
           if (pts?.length === 478) {
-            ctx.fillStyle = "rgba(34,197,94,0.55)";
-            for (let i = 0; i < pts.length; i += 2) {
-              const pt = pts[i];
+            // Draw face mesh contours instead of raw dots
+            const W = c.width, H = c.height;
+            const p = (i: number) => [pts![i].x * W, pts![i].y * H] as [number, number];
+
+            const drawPath = (indices: number[], closed = false, alpha = 0.55) => {
+              if (indices.length < 2) return;
               ctx.beginPath();
-              ctx.arc(pt.x * c.width, pt.y * c.height, 1, 0, Math.PI * 2);
+              ctx.moveTo(...p(indices[0]));
+              for (let k = 1; k < indices.length; k++) ctx.lineTo(...p(indices[k]));
+              if (closed) ctx.closePath();
+              ctx.strokeStyle = `rgba(34,197,94,${alpha})`;
+              ctx.lineWidth = 1;
+              ctx.stroke();
+            };
+
+            // Face oval
+            drawPath([10,338,297,332,284,251,389,356,454,323,361,288,397,365,379,378,400,377,152,148,176,149,150,136,172,58,132,93,234,127,162,21,54,103,67,109,10], true, 0.7);
+            // Left eye
+            drawPath([33,7,163,144,145,153,154,155,133,173,157,158,159,160,161,246,33], true, 0.65);
+            // Right eye
+            drawPath([263,249,390,373,374,380,381,382,362,398,384,385,386,387,388,466,263], true, 0.65);
+            // Left eyebrow
+            drawPath([70,63,105,66,107,55,65,52,53,46], false, 0.5);
+            // Right eyebrow
+            drawPath([300,293,334,296,336,285,295,282,283,276], false, 0.5);
+            // Nose bridge
+            drawPath([168,6,197,195,5,4,1,19,94], false, 0.5);
+            // Nose bottom
+            drawPath([129,98,97,2,326,327,358,279,360,363,440,344,438,457,274,461,462,370,94], false, 0.45);
+            // Lips outer
+            drawPath([61,146,91,181,84,17,314,405,321,375,291,409,270,269,267,0,37,39,40,185,61], true, 0.65);
+            // Lips inner
+            drawPath([78,95,88,178,87,14,317,402,318,324,308,415,310,311,312,13,82,81,80,191,78], true, 0.5);
+            // Jaw line accent dots at key points
+            ctx.fillStyle = "rgba(34,197,94,0.8)";
+            for (const i of [234,454,152,10,33,263,1,61,291]) {
+              ctx.beginPath();
+              ctx.arc(pts![i].x * W, pts![i].y * H, 2, 0, Math.PI * 2);
               ctx.fill();
             }
 
-            const raw = scoreFace(pts);
+            const frameLuma = lumaCanvasRef.current ? sampleLuma(v, lumaCanvasRef.current) : undefined;
+            const raw = scoreFace(pts, frameLuma);
             if (raw) {
               // Apply per-frame jitter for variation (same position ≠ same score)
               const jittered = jitterTraits(raw.traits);
@@ -231,10 +265,10 @@ export function useFaceLandmarker() {
                 const elapsed = performance.now() - scanStartRef.current;
                 setScanProgress(Math.min(elapsed / SCAN_DURATION_MS, 1));
 
-                const luma   = lumaCanvasRef.current ? sampleLuma(v, lumaCanvasRef.current) : 128;
-                const lumaOk = luma >= LUMA_MIN && luma <= LUMA_MAX;
-                const areaOk = faceAreaOk(pts);
-                const yawOk  = estimateYaw(pts) <= YAW_RATIO_MAX;
+                const lumaVal = frameLuma ?? 128;
+                const lumaOk  = lumaVal >= LUMA_MIN && lumaVal <= LUMA_MAX;
+                const areaOk  = faceAreaOk(pts);
+                const yawOk   = estimateYaw(pts) <= YAW_RATIO_MAX;
 
                 if (lumaOk && areaOk && yawOk) {
                   samplesRef.current.push(traitsToVector(raw.traits));
@@ -261,10 +295,18 @@ export function useFaceLandmarker() {
                       if (ai) final = aiToScores(ai);
                     }
                     if (!final) final = fallback;
-                    if (mountedRef.current) {
+                    if (final && mountedRef.current) {
+                      // Apply one-time candy boost to the locked final result
+                      const candy = generateCandy();
+                      const boostedMean = traitMean(final.traits);
+                      const boostedOverall = overallFromMean(boostedMean, candy);
+                      final = { ...final, overall: boostedOverall, elo: Math.round(boostedOverall * 42 + 15) };
                       phaseRef.current = "complete";
                       setPhase("complete");
-                      if (final) setScores({ ...final });
+                      setScores({ ...final });
+                    } else if (mountedRef.current) {
+                      phaseRef.current = "complete";
+                      setPhase("complete");
                     }
                   })();
                 }
