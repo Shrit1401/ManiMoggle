@@ -16,6 +16,17 @@ export const setPhase = mutation({
   },
 });
 
+export const setSnapshot = mutation({
+  args: { roomId: v.id("rooms"), sessionId: v.string(), snapshot: v.string() },
+  handler: async (ctx, { roomId, sessionId, snapshot }) => {
+    const p = await ctx.db
+      .query("players")
+      .withIndex("by_room_session", q => q.eq("roomId", roomId).eq("sessionId", sessionId))
+      .first();
+    if (p) await ctx.db.patch(p._id, { snapshot });
+  },
+});
+
 export const submitScore = mutation({
   args: {
     roomId: v.id("rooms"),

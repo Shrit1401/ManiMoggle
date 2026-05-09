@@ -15,11 +15,12 @@ interface Props {
 }
 
 const TRAIT_CONFIG: { key: TraitKey; label: string; short: string }[] = [
-  { key: "canthalTilt", label: "Eye Tilt",  short: "EYE"  },
-  { key: "jawline",     label: "Jawline",   short: "JAW"  },
-  { key: "symmetry",    label: "Symmetry",  short: "SYM"  },
-  { key: "harmony",     label: "Harmony",   short: "HAR"  },
-  { key: "skin",        label: "Skin",      short: "SKIN" },
+  { key: "canthalTilt", label: "Eye Tilt",     short: "EYE" },
+  { key: "jawline",     label: "Jawline",      short: "JAW" },
+  { key: "symmetry",    label: "Symmetry",     short: "SYM" },
+  { key: "harmony",     label: "Harmony",      short: "HAR" },
+  { key: "goldenRatio", label: "φ Ratio",      short: "PHI" },
+  { key: "skin",        label: "Skin",         short: "SKN" },
 ];
 
 function TraitBar({ label, short, value }: { label: string; short: string; value: number }) {

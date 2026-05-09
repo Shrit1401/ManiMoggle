@@ -17,6 +17,7 @@ export default defineSchema({
     // group scan fields
     groupStarted: v.optional(v.boolean()),
     groupComplete: v.optional(v.boolean()),
+    groupScanStartAt: v.optional(v.number()), // epoch ms when scan fires
   }).index("by_code", ["code"]),
 
   players: defineTable({
@@ -35,6 +36,7 @@ export default defineSchema({
     wins: v.optional(v.number()),
     losses: v.optional(v.number()),
     joinedAt: v.number(),
+    snapshot: v.optional(v.string()), // base64 JPEG for group grid
   })
     .index("by_room", ["roomId"])
     .index("by_room_session", ["roomId", "sessionId"]),

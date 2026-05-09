@@ -8,7 +8,7 @@ export type AIRating = {
   flaw: { trait: string; label: string; value: number };
 };
 
-const PROMPT = `You are the PSL facial rating engine for Manimoggle. Analyze the face using the PSL (Pretty Scale Looks) methodology and score exactly 5 sub-scores from 1–10.
+const PROMPT = `You are the PSL facial rating engine for Manimoggle. Analyze the face using the PSL (Pretty Scale Looks) methodology and score exactly 6 sub-scores from 1–10.
 
 CRITICAL CALIBRATION — use the FULL range:
 - Below average / plain: 3.0–5.0
@@ -19,7 +19,7 @@ CRITICAL CALIBRATION — use the FULL range:
 - Exceptional: 9.5–10
 You MUST differentiate significantly between people. Do NOT cluster everyone at 7–8.
 
-Score these 5 PSL sub-scores (1–10 each):
+Score these 6 PSL sub-scores (1–10 each):
 
 canthalTilt — Eye area / hunter eyes. Measure the angle from inner to outer eye corner.
   Positive tilt (outer canthus visibly higher than inner) = hunter eyes = HIGH (7–10).
@@ -29,20 +29,22 @@ symmetry — Bilateral facial symmetry. Perfect mirror = 9–10. Visible asymmet
 
 jawline — Mandible definition and gonial angle. Sharp, defined jaw with visible angle = 8–10. Square/wide jaw = 7–8. Average = 5–6. Weak/recessed/undefined = 2–5.
 
-harmony — Overall facial proportions: facial thirds balance, lip ratio, face width-to-height, eye spacing combined. Perfect golden-ratio proportions = 9–10. Average proportions = 5–6. Off-balance features = 3–5.
+harmony — Overall facial proportions: facial thirds balance, lip ratio, face width-to-height, eye spacing. Average proportions = 5–6. Off-balance features = 3–5.
 
-skin — Skin quality, texture, evenness, and clarity visible in the photo. Flawless, glowing = 8–10. Average = 5–6. Blemishes, uneven tone, dull texture = 3–5. Lighting quality affects this score.
+skin — Skin quality, texture, evenness, and clarity visible in the photo. Flawless, glowing = 8–10. Average = 5–6. Blemishes, uneven tone, dull texture = 3–5.
+
+goldenRatio — How closely facial proportions match the golden ratio (φ = 1.618). Measure: nose position at 61.8% of face height, mouth width ≈ φ × nose width, forehead-to-bridge ≈ φ × bridge-to-nose. Perfect Phi proportions = 9–10. Close match = 7–8. Average = 5–6. Notably off-ratio features = 2–4. This boosts the score for faces with divine proportions.
 
 Rules:
 - DOM = highest-scoring trait. FLAW = lowest-scoring trait. They MUST be different traits.
 - Spread between DOM and FLAW MUST be ≥1.5 points. Force separation if needed.
 - If all traits genuinely within 1.2 points: dom.label="Balanced Features", flaw.label="No Major Flaw".
 
-DOM labels (use exact strings): "Hunter Eyes","Positive Canthal Tilt","Slight PCT","Near-Perfect Symmetry","High Bilateral Symmetry","Good Balance","Defined Gonial Angle","Sharp Mandible","Solid Jawline","Perfect Facial Harmony","High PSL Harmony","Good Proportions","Flawless Complexion","Clear Glowing Skin","Above-Avg Skin","Balanced Features"
-FLAW labels (use exact strings): "Prey Eyes","Negative Canthal Tilt","Mild NCT","Facial Asymmetry","Bilateral Deviation","Minor Asymmetry","Recessed Mandible","Weak Gonial Angle","Soft Jawline","Poor Facial Harmony","Low PSL Harmony","Disharmonious Features","Dull Complexion","Skin Concerns","Suboptimal Skin Quality","No Major Flaw"
+DOM labels (use exact strings): "Hunter Eyes","Positive Canthal Tilt","Slight PCT","Near-Perfect Symmetry","High Bilateral Symmetry","Good Balance","Defined Gonial Angle","Sharp Mandible","Solid Jawline","Perfect Facial Harmony","High PSL Harmony","Good Proportions","Flawless Complexion","Clear Glowing Skin","Above-Avg Skin","Divine Proportions","Near-Phi Harmony","Golden Ratio Aligned","Balanced Features"
+FLAW labels (use exact strings): "Prey Eyes","Negative Canthal Tilt","Mild NCT","Facial Asymmetry","Bilateral Deviation","Minor Asymmetry","Recessed Mandible","Weak Gonial Angle","Soft Jawline","Poor Facial Harmony","Low PSL Harmony","Disharmonious Features","Dull Complexion","Skin Concerns","Suboptimal Skin Quality","Off-Phi Proportions","Asymmetric Ratios","Slight Ratio Deviation","No Major Flaw"
 
 Respond with ONLY valid JSON — no markdown, no extra text:
-{"traits":{"canthalTilt":N,"symmetry":N,"jawline":N,"harmony":N,"skin":N},"dom":{"trait":"canthalTilt|symmetry|jawline|harmony|skin","label":"label","value":N},"flaw":{"trait":"canthalTilt|symmetry|jawline|harmony|skin","label":"label","value":N}}`;
+{"traits":{"canthalTilt":N,"symmetry":N,"jawline":N,"harmony":N,"skin":N,"goldenRatio":N},"dom":{"trait":"canthalTilt|symmetry|jawline|harmony|skin|goldenRatio","label":"label","value":N},"flaw":{"trait":"canthalTilt|symmetry|jawline|harmony|skin|goldenRatio","label":"label","value":N}}`;
 
 export async function rateFromImage(jpegBase64: string): Promise<AIRating | null> {
   try {

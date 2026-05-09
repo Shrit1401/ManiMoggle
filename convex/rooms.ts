@@ -351,6 +351,16 @@ export const resetTournament = mutation({
 
 // ─── Group scan mode mutations ────────────────────────────────────────────────
 
+export const scheduleGroupScan = mutation({
+  args: { roomId: v.id("rooms") },
+  handler: async (ctx, { roomId }) => {
+    const room = await ctx.db.get(roomId);
+    if (!room || room.mode !== "group") return;
+    // 4-second countdown so all clients can synchronize
+    await ctx.db.patch(roomId, { groupScanStartAt: Date.now() + 4000, groupStarted: true });
+  },
+});
+
 export const startGroupScan = mutation({
   args: { roomId: v.id("rooms") },
   handler: async (ctx, { roomId }) => {
@@ -374,9 +384,9 @@ export const resetGroupScan = mutation({
         phase: "lobby",
         overall: undefined, elo: undefined, sub: undefined,
         tierCode: undefined, tierColor: undefined, level: undefined,
-        domLabel: undefined, flawLabel: undefined,
+        domLabel: undefined, flawLabel: undefined, snapshot: undefined,
       });
     }
-    await ctx.db.patch(roomId, { groupStarted: false, groupComplete: false });
+    await ctx.db.patch(roomId, { groupStarted: false, groupComplete: false, groupScanStartAt: undefined });
   },
 });

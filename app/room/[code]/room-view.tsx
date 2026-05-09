@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { api } from "../../../convex/_generated/api";
 import type { Id } from "../../../convex/_generated/dataModel";
 import { RoomScanView, type OpponentData } from "../../scan/room-scan-view";
+import { useFaceLandmarker } from "../../scan/use-face-landmarker";
 
 type RoomData = NonNullable<ReturnType<typeof useQuery<typeof api.rooms.getByCode>>>;
 type Player   = RoomData["players"][number];
@@ -612,163 +613,310 @@ function TournamentView({ room, sessionId, name, onStartScan }: {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// GROUP SCAN MODE
+// GROUP SCAN MODE — camera grid, synchronized scan, snapshot sharing
 // ═══════════════════════════════════════════════════════════════════════════════
 
-function GroupScanView({ room, sessionId, name, onStartScan }: {
-  room: RoomData; sessionId: string; name: string; onStartScan: () => void;
+function GroupScanView({ room, sessionId }: {
+  room: RoomData; sessionId: string;
 }) {
-  const router         = useRouter();
-  const startGroup     = useMutation(api.rooms.startGroupScan);
+  const router = useRouter();
+  const {
+    status, phase, scores, error,
+    videoRef, canvasRef,
+    retry, startScan, resetScan,
+    scanProgress, samplesCollected,
+  } = useFaceLandmarker();
+
+  const submitScore    = useMutation(api.players.submitScore);
+  const setSnapshotMut = useMutation(api.players.setSnapshot);
+  const scheduleStart  = useMutation(api.rooms.scheduleGroupScan);
   const resetGroup     = useMutation(api.rooms.resetGroupScan);
-  const setPhaseMutation = useMutation(api.players.setPhase);
+  const submittedRef   = useRef(false);
 
-  const players  = room.players;
-  const isHost   = room.hostSessionId === sessionId;
-  const started  = room.groupStarted === true;
-  const myPlayer = players.find(p => p.sessionId === sessionId);
-  const allDone  = players.length >= 2 && players.every(p => p.phase === "done");
+  const [countdown, setCountdown] = useState<number | null>(null);
 
+  const players         = room.players;
+  const isHost          = room.hostSessionId === sessionId;
+  const groupScanStartAt = room.groupScanStartAt;
+  const allDone         = players.length >= 2 && players.every(p => p.phase === "done");
   const ranked = [...players]
     .filter(p => p.phase === "done" && p.overall !== undefined)
     .sort((a, b) => (b.overall ?? 0) - (a.overall ?? 0));
 
-  const handleStartScan = () => {
-    void setPhaseMutation({ roomId: room._id as Id<"rooms">, sessionId, phase: "scanning" });
-    onStartScan();
-  };
+  // Send periodic snapshots while camera is active
+  useEffect(() => {
+    if (status !== "ready") return;
+    const send = () => {
+      const video = videoRef.current;
+      if (!video || video.readyState < 2 || video.videoWidth === 0) return;
+      const c = document.createElement("canvas");
+      c.width = 180; c.height = 135;
+      const ctx = c.getContext("2d");
+      if (!ctx) return;
+      ctx.save(); ctx.scale(-1, 1); ctx.drawImage(video, -180, 0, 180, 135); ctx.restore();
+      const url = c.toDataURL("image/jpeg", 0.28);
+      setSnapshotMut({ roomId: room._id as Id<"rooms">, sessionId, snapshot: url }).catch(() => {});
+    };
+    send();
+    const iv = setInterval(send, 2000);
+    return () => clearInterval(iv);
+  }, [status, videoRef, room._id, sessionId, setSnapshotMut]);
+
+  // Live countdown display
+  useEffect(() => {
+    if (!groupScanStartAt) { setCountdown(null); return; }
+    const update = () => {
+      const rem = Math.ceil((groupScanStartAt - Date.now()) / 1000);
+      setCountdown(rem > 0 ? rem : null);
+    };
+    update();
+    const iv = setInterval(update, 100);
+    return () => clearInterval(iv);
+  }, [groupScanStartAt]);
+
+  // Auto-start scan when the scheduled time arrives
+  useEffect(() => {
+    if (!groupScanStartAt || phase !== "live" || status !== "ready") return;
+    const delay = groupScanStartAt - Date.now();
+    if (delay <= 0) { startScan(); return; }
+    const t = setTimeout(() => startScan(), delay);
+    return () => clearTimeout(t);
+  }, [groupScanStartAt, phase, status, startScan]);
+
+  // Auto-submit when scan completes
+  useEffect(() => {
+    if (phase !== "complete" || !scores || submittedRef.current) return;
+    submittedRef.current = true;
+    void submitScore({
+      roomId: room._id as Id<"rooms">, sessionId,
+      overall: scores.overall, elo: scores.elo, sub: scores.sub,
+      tierCode: scores.tier.code, tierColor: scores.tier.starColor,
+      level: scores.level, domLabel: scores.dom.label, flawLabel: scores.flaw.label,
+    });
+  }, [phase, scores, room._id, sessionId, submitScore]);
 
   const rankMedal = (i: number) => i === 0 ? "🥇" : i === 1 ? "🥈" : i === 2 ? "🥉" : `#${i + 1}`;
+  const cols = players.length <= 2 ? "grid-cols-2" : players.length <= 4 ? "grid-cols-2" : "grid-cols-2 sm:grid-cols-3";
 
   return (
-    <div className="flex flex-col bg-black min-h-[100dvh] overflow-hidden">
-      <div className="flex items-center justify-between px-4 pt-safe pt-5 pb-3 shrink-0">
-        <button onClick={() => router.push("/")} className="font-mono text-[8px] tracking-[0.25em] uppercase text-white/28 hover:text-white/55 p-1">← Exit</button>
-        <div className="flex flex-col items-center">
+    <div className="relative flex flex-col bg-black h-[100dvh] overflow-hidden">
+
+      {/* ── Header ── */}
+      <div className="flex items-center justify-between px-4 pt-safe pt-3 pb-2 shrink-0 z-10 bg-black/70 backdrop-blur-sm">
+        <button onClick={() => router.push("/")}
+          className="font-mono text-[8px] tracking-[0.25em] uppercase text-white/28 hover:text-white/55 p-1">
+          ← Exit
+        </button>
+        <div className="flex flex-col items-center gap-0.5">
           <span className="font-mono text-[7px] tracking-[0.35em] uppercase text-white/25">Group Scan</span>
           <CopyCodeRow code={room.code} />
         </div>
-        <div className="w-10" />
+        {/* Host start button in header — clean, one button only */}
+        {isHost && !groupScanStartAt && !allDone ? (
+          <button
+            onClick={() => scheduleStart({ roomId: room._id as Id<"rooms"> })}
+            disabled={players.length < 2 || status !== "ready"}
+            className="rounded-full px-3 py-1.5 font-mono text-[8px] tracking-[0.18em] uppercase
+              text-black font-bold bg-gradient-to-r from-cyan-400 to-cyan-500
+              shadow-[0_0_20px_rgba(34,211,238,0.3)] disabled:opacity-30 disabled:cursor-not-allowed
+              transition-all active:scale-[0.96]"
+          >
+            Start Scan
+          </button>
+        ) : (
+          <div className="w-16" />
+        )}
       </div>
 
-      <div className="flex-1 flex flex-col px-4 pb-6 gap-3 overflow-y-auto">
+      {/* ── Camera grid ── */}
+      <div className={`grid ${cols} gap-1.5 p-1.5 flex-1 min-h-0 overflow-hidden`}>
+        {players.map(p => {
+          const isMe      = p.sessionId === sessionId;
+          const isDone    = p.phase === "done";
+          const isScanning = p.phase === "scanning";
 
-        {/* Rankings when all done */}
-        {allDone && ranked.length > 0 && (
-          <div className="flex flex-col gap-2 pt-2">
-            <p className="font-mono text-[7px] tracking-[0.35em] uppercase text-amber-400/60 px-1">Final Rankings</p>
-            {ranked.map((p, i) => (
-              <div key={p._id} className={`flex items-center gap-3 px-3 py-3 rounded-xl ring-1 transition-all
-                ${i === 0 ? "bg-amber-400/[0.06] ring-amber-400/25"
-                  : p.sessionId === sessionId ? "bg-cyan-500/[0.04] ring-cyan-400/15"
-                  : "bg-white/[0.025] ring-white/8"}`}>
-                <span className="text-[16px] w-6 text-center shrink-0">{rankMedal(i)}</span>
-                <div className="w-9 h-9 rounded-full bg-white/10 ring-1 ring-white/20
-                  flex items-center justify-center font-mono text-[11px] font-bold text-white shrink-0">
-                  {p.name.charAt(0)}
+          return (
+            <div key={p._id} className={`relative rounded-xl overflow-hidden bg-neutral-900
+              ${isMe ? "ring-2 ring-cyan-400/60" : "ring-1 ring-white/10"}`}>
+
+              {isMe ? (
+                /* Own tile — live camera */
+                <>
+                  <video ref={videoRef} autoPlay muted playsInline
+                    className="absolute inset-0 w-full h-full object-cover"
+                    style={{ transform: "scaleX(-1)" }}
+                  />
+                  <canvas ref={canvasRef}
+                    className="absolute inset-0 w-full h-full object-cover pointer-events-none"
+                    style={{ transform: "scaleX(-1)" }}
+                  />
+                  {status === "requesting" && (
+                    <div className="absolute inset-0 bg-black/80 flex items-center justify-center">
+                      <div className="w-6 h-6 rounded-full border-2 border-white/20 border-t-cyan-400 animate-spin" />
+                    </div>
+                  )}
+                  {(status === "denied" || status === "error" || status === "unsupported") && (
+                    <div className="absolute inset-0 bg-black/90 flex flex-col items-center justify-center gap-2 px-2">
+                      <span className="text-lg">📷</span>
+                      <p className="font-mono text-[6px] tracking-widest uppercase text-white/40 text-center">
+                        {status === "denied" ? "Camera denied" : status === "unsupported" ? "Not supported" : (error ?? "Camera failed")}
+                      </p>
+                      {status !== "unsupported" && (
+                        <button onClick={retry}
+                          className="rounded-full bg-white/10 px-2.5 py-1 font-mono text-[6px] tracking-widest uppercase text-white">
+                          Retry
+                        </button>
+                      )}
+                    </div>
+                  )}
+                  {/* Analyzing overlay */}
+                  {phase === "analyzing" && (
+                    <div className="absolute inset-0 bg-black/50 flex items-center justify-center z-10">
+                      <div className="flex items-center gap-1.5 rounded-full bg-cyan-500/20 ring-1 ring-cyan-400/40 px-3 py-1.5">
+                        <span className="w-1 h-1 rounded-full bg-cyan-400 animate-ping" />
+                        <span className="font-mono text-[7px] tracking-[0.15em] uppercase text-cyan-300">AI…</span>
+                      </div>
+                    </div>
+                  )}
+                  {/* Scan progress ring */}
+                  {phase === "scanning" && (
+                    <div className="absolute top-2 right-2 z-10">
+                      <svg width="30" height="30" className="rotate-[-90deg]">
+                        <circle cx="15" cy="15" r="12" fill="none" stroke="rgba(255,255,255,0.15)" strokeWidth="2.5" />
+                        <circle cx="15" cy="15" r="12" fill="none" stroke="#22d3ee" strokeWidth="2.5"
+                          strokeDasharray={`${2 * Math.PI * 12 * scanProgress} ${2 * Math.PI * 12}`}
+                          strokeLinecap="round" style={{ transition: "stroke-dasharray 0.2s linear" }} />
+                      </svg>
+                    </div>
+                  )}
+                </>
+              ) : (
+                /* Others' tiles — latest snapshot */
+                <div className="absolute inset-0">
+                  {p.snapshot ? (
+                    <img src={p.snapshot} className="absolute inset-0 w-full h-full object-cover" alt={p.name} />
+                  ) : (
+                    <div className="absolute inset-0 flex items-center justify-center">
+                      <div className="w-10 h-10 rounded-full bg-white/8 ring-1 ring-white/15
+                        flex items-center justify-center font-mono text-base font-bold text-white/30">
+                        {p.name.charAt(0)}
+                      </div>
+                    </div>
+                  )}
                 </div>
-                <div className="flex-1 min-w-0">
-                  <p className={`font-sans font-bold text-[12px] tracking-[0.08em] uppercase truncate
-                    ${i === 0 ? "text-amber-400" : p.sessionId === sessionId ? "text-cyan-300" : "text-white/70"}`}>
-                    {p.name}
-                    {p.sessionId === sessionId && <span className="ml-1.5 font-mono text-[7px] text-white/30 tracking-widest">you</span>}
-                  </p>
-                  <div className="flex items-center gap-1.5 mt-0.5">
-                    <span className="font-mono text-[7px] tracking-widest text-white/35 uppercase">{p.tierCode} · {p.level}</span>
-                  </div>
-                </div>
-                <div className="flex flex-col items-end shrink-0">
-                  <span className="font-sans font-black text-[22px] text-white tabular-nums leading-none">
+              )}
+
+              {/* Score overlay when done */}
+              {isDone && (
+                <div className="absolute inset-0 bg-gradient-to-t from-black/95 via-black/40 to-transparent
+                  flex flex-col justify-end p-2">
+                  <p className="font-sans font-black text-[24px] text-white tabular-nums leading-none">
                     {p.overall?.toFixed(1)}
-                  </span>
-                  <span className="font-mono text-[7px] text-white/30 uppercase">PSL</span>
+                  </p>
+                  <p className="font-mono text-[6px] tracking-widest uppercase text-white/45 mt-0.5">
+                    {p.tierCode} · {p.level}
+                  </p>
+                  <p className="font-mono text-[6px] text-emerald-300 truncate">{p.domLabel}</p>
                 </div>
+              )}
+
+              {/* Scanning pulse */}
+              {isScanning && !isDone && !isMe && (
+                <div className="absolute top-1.5 right-1.5 flex items-center gap-1 rounded-full bg-black/60 px-1.5 py-0.5">
+                  <span className="w-1 h-1 rounded-full bg-cyan-400 animate-pulse" />
+                  <span className="font-mono text-[5.5px] uppercase text-cyan-400">scan</span>
+                </div>
+              )}
+
+              {/* Name tag */}
+              <div className={`absolute ${isDone ? "top-1.5 left-1.5" : "bottom-1.5 left-1.5"}`}>
+                <span className={`font-mono text-[7px] font-bold tracking-widest uppercase
+                  px-1.5 py-0.5 rounded-full bg-black/55 backdrop-blur-sm
+                  ${isMe ? "text-cyan-300" : "text-white/70"}`}>
+                  {isMe ? "YOU" : p.name}
+                </span>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      {/* ── Countdown overlay ── */}
+      {countdown !== null && (
+        <div className="absolute inset-0 flex items-center justify-center bg-black/75 z-30 pointer-events-none">
+          <div className="flex flex-col items-center gap-2">
+            <p className="font-mono text-[8px] tracking-[0.4em] uppercase text-white/45">Scan starts in</p>
+            <span className="font-mono font-black text-[100px] leading-none text-white tabular-nums">
+              {countdown}
+            </span>
+          </div>
+        </div>
+      )}
+
+      {/* ── Scanning status bar ── */}
+      {phase === "scanning" && (
+        <div className="absolute bottom-4 left-1/2 -translate-x-1/2 z-10 pointer-events-none">
+          <div className="glass rounded-full px-4 py-2 flex items-center gap-2">
+            <span className="w-1 h-1 rounded-full bg-cyan-400 animate-ping shrink-0" />
+            <span className="font-mono text-[7px] tracking-[0.18em] uppercase text-cyan-300">
+              {samplesCollected} samples · {Math.ceil((1 - scanProgress) * 15)}s
+            </span>
+          </div>
+        </div>
+      )}
+
+      {/* ── Waiting for host ── */}
+      {!groupScanStartAt && !isHost && phase === "live" && !allDone && (
+        <div className="absolute bottom-5 left-0 right-0 flex justify-center pointer-events-none z-10">
+          <div className="glass rounded-full px-4 py-2 flex items-center gap-2">
+            <span className="w-1.5 h-1.5 rounded-full bg-white/25 animate-pulse shrink-0" />
+            <span className="font-mono text-[7px] tracking-[0.22em] uppercase text-white/35">
+              Waiting for host to start…
+            </span>
+          </div>
+        </div>
+      )}
+
+      {/* ── Final rankings ── */}
+      {allDone && ranked.length > 0 && (
+        <div className="absolute inset-x-0 bottom-0 z-20 bg-gradient-to-t from-black via-black/97 to-transparent pt-20 pb-safe pb-5 px-4">
+          <div className="flex flex-col gap-1.5 max-w-sm mx-auto">
+            <p className="font-mono text-[7px] tracking-[0.4em] uppercase text-amber-400/60 text-center mb-1">
+              Final Rankings
+            </p>
+            {ranked.map((p, i) => (
+              <div key={p._id} className={`flex items-center gap-3 px-3 py-2.5 rounded-xl ring-1
+                ${i === 0 ? "bg-amber-400/[0.08] ring-amber-400/25"
+                  : p.sessionId === sessionId ? "bg-cyan-500/[0.05] ring-cyan-400/15"
+                  : "bg-white/[0.03] ring-white/8"}`}>
+                <span className="text-[14px] w-5 text-center shrink-0">{rankMedal(i)}</span>
+                <span className={`font-sans font-bold text-[11px] tracking-[0.08em] uppercase flex-1 truncate
+                  ${i === 0 ? "text-amber-400" : p.sessionId === sessionId ? "text-cyan-300" : "text-white/70"}`}>
+                  {p.name}
+                  {p.sessionId === sessionId && (
+                    <span className="ml-1 font-mono text-[7px] text-white/30 tracking-widest">you</span>
+                  )}
+                </span>
+                <span className="font-sans font-black text-[20px] text-white tabular-nums shrink-0">
+                  {p.overall?.toFixed(1)}
+                </span>
               </div>
             ))}
-
             {isHost && (
-              <button onClick={() => resetGroup({ roomId: room._id as Id<"rooms"> })}
-                className="w-full rounded-full bg-white/8 hover:bg-white/14 ring-1 ring-white/15
-                  py-3.5 font-mono text-[10px] tracking-[0.22em] uppercase text-white transition-all mt-2">
+              <button
+                onClick={() => {
+                  submittedRef.current = false;
+                  resetScan();
+                  void resetGroup({ roomId: room._id as Id<"rooms"> });
+                }}
+                className="mt-1 w-full rounded-full bg-white/8 hover:bg-white/14 ring-1 ring-white/15
+                  py-3 font-mono text-[9px] tracking-[0.22em] uppercase text-white transition-all">
                 Scan Again
               </button>
             )}
           </div>
-        )}
-
-        {/* Player grid when not all done */}
-        {!allDone && (
-          <>
-            <div className="flex flex-col gap-1.5 pt-2">
-              <p className="font-mono text-[7px] tracking-[0.35em] uppercase text-white/30 px-1">
-                {players.length} players · {players.filter(p => p.phase === "done").length} done
-              </p>
-              {players.map(p => (
-                <div key={p._id} className={`flex items-center gap-3 px-3 py-3 rounded-xl ring-1
-                  ${p.sessionId === sessionId ? "bg-cyan-500/[0.04] ring-cyan-400/15" : "bg-white/[0.025] ring-white/8"}`}>
-                  <div className="w-9 h-9 rounded-full bg-white/10 ring-1 ring-white/20
-                    flex items-center justify-center font-mono text-[11px] font-bold text-white shrink-0">
-                    {p.name.charAt(0)}
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <p className={`font-sans font-semibold text-[12px] tracking-[0.08em] uppercase truncate
-                      ${p.sessionId === sessionId ? "text-cyan-300" : "text-white/70"}`}>
-                      {p.name}
-                    </p>
-                    <div className="flex items-center gap-1 mt-0.5">
-                      <span className={`w-1.5 h-1.5 rounded-full shrink-0
-                        ${p.phase === "done" ? "bg-emerald-400" : p.phase === "scanning" ? "bg-cyan-400 animate-pulse" : "bg-white/20"}`} />
-                      <span className="font-mono text-[7px] tracking-widest uppercase text-white/30">
-                        {p.phase === "done" ? "Done" : p.phase === "scanning" ? "Scanning…" : "Waiting"}
-                      </span>
-                    </div>
-                  </div>
-                  {p.phase === "done" && p.overall !== undefined && (
-                    <span className="font-sans font-bold text-[18px] text-white/60 tabular-nums shrink-0">
-                      {p.overall.toFixed(1)}
-                    </span>
-                  )}
-                </div>
-              ))}
-            </div>
-
-            {/* Start button — only when started and my turn */}
-            {started && myPlayer?.phase === "lobby" && (
-              <button onClick={handleStartScan}
-                className="w-full rounded-full bg-cyan-500/20 hover:bg-cyan-500/30 active:scale-[0.98]
-                  ring-1 ring-cyan-400/35 py-4 font-mono text-[11px] tracking-[0.28em]
-                  uppercase text-cyan-300 transition-all">
-                Start My Scan
-              </button>
-            )}
-
-            {!started && !isHost && (
-              <p className="font-mono text-[8px] tracking-[0.25em] uppercase text-white/25 text-center py-2">
-                Waiting for host to start…
-              </p>
-            )}
-
-            {!started && isHost && (
-              <button onClick={() => startGroup({ roomId: room._id as Id<"rooms"> })}
-                disabled={players.length < 2}
-                className="w-full rounded-full bg-cyan-500/20 hover:bg-cyan-500/30 active:scale-[0.98]
-                  ring-1 ring-cyan-400/35 py-4 font-mono text-[11px] tracking-[0.28em]
-                  uppercase text-cyan-300 transition-all disabled:opacity-25">
-                Start Group Scan ({players.length} players)
-              </button>
-            )}
-          </>
-        )}
-
-        {/* Share nudge */}
-        {!started && (
-          <div className="flex flex-col items-center gap-1.5 py-1">
-            <p className="font-mono text-[8px] tracking-[0.25em] uppercase text-white/22">
-              Share code · up to 8 players
-            </p>
-          </div>
-        )}
-      </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -853,8 +1001,6 @@ export function RoomView({ code }: { code: string }) {
       <GroupScanView
         room={room}
         sessionId={sessionId}
-        name={name}
-        onStartScan={() => setScanning(true)}
       />
     );
   }

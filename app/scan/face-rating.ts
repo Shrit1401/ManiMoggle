@@ -1,11 +1,12 @@
-// PSL face-rating engine — 5 sub-scores matching Omoggle methodology
+// PSL face-rating engine — 6 sub-scores matching Omoggle methodology
 
 export type TraitKey =
   | "canthalTilt"   // Eye area / hunter eyes
   | "symmetry"      // Bilateral facial symmetry
   | "jawline"       // Mandible definition / gonial angle
   | "harmony"       // Facial thirds, lips, FWHR, eye spacing combined
-  | "skin";         // Skin quality, texture, and lighting
+  | "skin"          // Skin quality, texture, and lighting
+  | "goldenRatio";  // Closeness to divine proportion (φ = 1.618)
 
 export type Scores = {
   overall: number;
@@ -145,22 +146,50 @@ function skinScore(luma?: number): number {
   return 5.5;                 // blown out
 }
 
+// ─── 6. Golden Ratio — closeness to φ = 1.618 ─────────────────────────────────
+// Three axis-aligned ratios that need no image-aspect correction.
+
+const PHI = 1.6180339887;
+
+function goldenRatioScore(lm: LM[]): number {
+  // 1. Lower face percentage (chin-to-nose / chin-to-forehead) — ideal 1/φ² ≈ 0.382
+  const totalH = lm[152].y - lm[10].y;
+  const lowerH = lm[152].y - lm[1].y;
+  if (totalH < 0.005) return 5;
+  const lowerPct = lowerH / totalH;
+  const s1 = clamp(9.5 - Math.abs(lowerPct - 0.382) * 50, 1, 10);
+
+  // 2. Mouth width / nose width — ideal φ ≈ 1.618
+  const mouthW = Math.abs(lm[291].x - lm[61].x);
+  const noseW  = Math.abs(lm[326].x - lm[97].x);
+  const s2 = noseW < 0.001 ? 5 : clamp(9.5 - Math.abs(mouthW / noseW - PHI) / PHI * 22, 1, 10);
+
+  // 3. Upper face / middle face ratio (forehead-to-bridge / bridge-to-nose-tip) — ideal φ
+  const upperH = lm[168].y - lm[10].y;
+  const midH   = lm[1].y   - lm[168].y;
+  const s3 = midH < 0.001 ? 5 : clamp(9.5 - Math.abs(upperH / midH - PHI) / PHI * 18, 1, 10);
+
+  return clamp(s1 * 0.4 + s2 * 0.35 + s3 * 0.25, 1, 10);
+}
+
 // ─── Label tables ─────────────────────────────────────────────────────────────
 
 const DOM_LABELS: Record<TraitKey, [string, string, string]> = {
-  canthalTilt: ["Hunter Eyes",           "Positive Canthal Tilt", "Slight PCT"],
-  symmetry:    ["Near-Perfect Symmetry", "High Bilateral Symmetry", "Good Balance"],
-  jawline:     ["Defined Gonial Angle",  "Sharp Mandible",          "Solid Jawline"],
-  harmony:     ["Perfect Facial Harmony","High PSL Harmony",        "Good Proportions"],
-  skin:        ["Flawless Complexion",   "Clear Glowing Skin",      "Above-Avg Skin"],
+  canthalTilt:  ["Hunter Eyes",            "Positive Canthal Tilt",  "Slight PCT"],
+  symmetry:     ["Near-Perfect Symmetry",  "High Bilateral Symmetry","Good Balance"],
+  jawline:      ["Defined Gonial Angle",   "Sharp Mandible",         "Solid Jawline"],
+  harmony:      ["Perfect Facial Harmony", "High PSL Harmony",       "Good Proportions"],
+  skin:         ["Flawless Complexion",    "Clear Glowing Skin",     "Above-Avg Skin"],
+  goldenRatio:  ["Divine Proportions",     "Near-Phi Harmony",       "Golden Ratio Aligned"],
 };
 
 const FLAW_LABELS: Record<TraitKey, [string, string, string]> = {
-  canthalTilt: ["Prey Eyes",           "Negative Canthal Tilt", "Mild NCT"],
-  symmetry:    ["Facial Asymmetry",    "Bilateral Deviation",   "Minor Asymmetry"],
-  jawline:     ["Recessed Mandible",   "Weak Gonial Angle",     "Soft Jawline"],
-  harmony:     ["Poor Facial Harmony", "Low PSL Harmony",       "Disharmonious Features"],
-  skin:        ["Dull Complexion",     "Skin Concerns",         "Suboptimal Skin Quality"],
+  canthalTilt:  ["Prey Eyes",              "Negative Canthal Tilt",  "Mild NCT"],
+  symmetry:     ["Facial Asymmetry",       "Bilateral Deviation",    "Minor Asymmetry"],
+  jawline:      ["Recessed Mandible",      "Weak Gonial Angle",      "Soft Jawline"],
+  harmony:      ["Poor Facial Harmony",    "Low PSL Harmony",        "Disharmonious Features"],
+  skin:         ["Dull Complexion",        "Skin Concerns",          "Suboptimal Skin Quality"],
+  goldenRatio:  ["Off-Phi Proportions",   "Asymmetric Ratios",      "Slight Ratio Deviation"],
 };
 
 function domLabel(key: TraitKey, score: number): string {
@@ -211,6 +240,7 @@ function computeTraits(lm: LM[], luma?: number): Record<TraitKey, number> {
     jawline:     jawlineScore(lm),
     harmony:     harmonyScore(lm),
     skin:        skinScore(luma),
+    goldenRatio: goldenRatioScore(lm),
   };
 }
 
@@ -238,6 +268,7 @@ export function jitterTraits(traits: Record<TraitKey, number>, magnitude = 1.2):
     jawline:     clamp(traits.jawline     + j(),      1, 10),
     harmony:     clamp(traits.harmony     + j(),      1, 10),
     skin:        clamp(traits.skin        + j(0.4),   1, 10),
+    goldenRatio: clamp(traits.goldenRatio + j(0.6),   1, 10),
   };
 }
 
@@ -251,6 +282,7 @@ export function smoothScores(prev: Scores | null, next: Scores, alpha = 0.3): Sc
     jawline:     e(prev.traits.jawline,     next.traits.jawline),
     harmony:     e(prev.traits.harmony,     next.traits.harmony),
     skin:        e(prev.traits.skin,        next.traits.skin),
+    goldenRatio: e(prev.traits.goldenRatio, next.traits.goldenRatio),
   };
   const overall = overallFromMean(traitMean(traits));
   return { overall, traits, ...categorize(overall, traits) };
@@ -279,7 +311,7 @@ export function scoreFace(landmarks: LM[], luma?: number): Scores | null {
   return { overall, traits, ...categorize(overall, traits) };
 }
 
-const TRAIT_KEYS: TraitKey[] = ["canthalTilt","symmetry","jawline","harmony","skin"];
+const TRAIT_KEYS: TraitKey[] = ["canthalTilt","symmetry","jawline","harmony","skin","goldenRatio"];
 
 export function aggregateMedian(samples: number[][]): Scores | null {
   if (samples.length === 0) return null;
