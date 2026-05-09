@@ -663,12 +663,10 @@ function GroupScanView({ room, sessionId }: {
 
   const submitScore    = useMutation(api.players.submitScore);
   const setSnapshotMut = useMutation(api.players.setSnapshot);
-  const startGroupMut  = useMutation(api.rooms.startGroupScan);
+  const startGroupMut  = useMutation(api.rooms.scheduleGroupScan);
   const resetGroup     = useMutation(api.rooms.resetGroupScan);
   const submittedRef   = useRef(false);
-  const prevStarted    = useRef(false);
 
-  // Local scan schedule — set when groupStarted flips true (no new schema needed)
   const [scanStartsAt, setScanStartsAt] = useState<number | null>(null);
   const [countdown, setCountdown]       = useState<number | null>(null);
 
@@ -682,13 +680,14 @@ function GroupScanView({ room, sessionId }: {
     .filter(p => p.phase === "done" && p.overall !== undefined)
     .sort((a, b) => (b.overall ?? 0) - (a.overall ?? 0));
 
-  // When groupStarted flips true → schedule scan 4 s from now (client-side clock)
+  // Sync server scan timestamp → local state (all clients derive from the same absolute time)
   useEffect(() => {
-    if (started && !prevStarted.current) {
-      setScanStartsAt(Date.now() + 4000);
+    if (room.groupScanStartAt) {
+      setScanStartsAt(room.groupScanStartAt);
+    } else {
+      setScanStartsAt(null);
     }
-    prevStarted.current = started;
-  }, [started]);
+  }, [room.groupScanStartAt]);
 
   // Tick countdown
   useEffect(() => {
@@ -974,8 +973,6 @@ function GroupScanView({ room, sessionId }: {
               <button
                 onClick={() => {
                   submittedRef.current = false;
-                  prevStarted.current = false;
-                  setScanStartsAt(null);
                   resetScan();
                   void resetGroup({ roomId: room._id as Id<"rooms"> });
                 }}
