@@ -7,6 +7,7 @@ import { api } from "../../../convex/_generated/api";
 import type { Id } from "../../../convex/_generated/dataModel";
 import { RoomScanView, type OpponentData } from "../../scan/room-scan-view";
 import { useFaceLandmarker } from "../../scan/use-face-landmarker";
+import { useWebRTCGroup } from "../../scan/use-webrtc-group";
 
 type RoomData = NonNullable<ReturnType<typeof useQuery<typeof api.rooms.getByCode>>>;
 type Player   = RoomData["players"][number];
@@ -612,6 +613,39 @@ function TournamentView({ room, sessionId, name, onStartScan }: {
   );
 }
 
+// ─── RemoteVideo — sets srcObject reactively so WebRTC stream renders ────────
+
+function RemoteVideo({ stream, snapshot, name }: {
+  stream: MediaStream | null;
+  snapshot?: string;
+  name: string;
+}) {
+  const ref = useRef<HTMLVideoElement>(null);
+
+  useEffect(() => {
+    if (ref.current) ref.current.srcObject = stream;
+  }, [stream]);
+
+  if (stream) {
+    return (
+      <video ref={ref} autoPlay playsInline muted
+        className="absolute inset-0 w-full h-full object-cover" />
+    );
+  }
+  if (snapshot) {
+    return <img src={snapshot} className="absolute inset-0 w-full h-full object-cover" alt={name} />;
+  }
+  return (
+    <div className="absolute inset-0 flex flex-col items-center justify-center gap-2">
+      <div className="w-12 h-12 rounded-full bg-white/8 ring-1 ring-white/12
+        flex items-center justify-center font-mono text-xl font-bold text-white/25">
+        {name.charAt(0)}
+      </div>
+      <span className="font-mono text-[7px] uppercase tracking-widest text-white/25">Waiting…</span>
+    </div>
+  );
+}
+
 // ═══════════════════════════════════════════════════════════════════════════════
 // GROUP SCAN MODE — camera grid, synchronized scan, snapshot sharing
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -622,7 +656,7 @@ function GroupScanView({ room, sessionId }: {
   const router = useRouter();
   const {
     status, phase, scores, error,
-    videoRef, canvasRef,
+    videoRef, canvasRef, streamRef,
     retry, startScan, resetScan,
     scanProgress, samplesCollected,
   } = useFaceLandmarker();
@@ -639,6 +673,8 @@ function GroupScanView({ room, sessionId }: {
   const [countdown, setCountdown]       = useState<number | null>(null);
 
   const players  = room.players;
+  const otherSessionIds = players.filter(p => p.sessionId !== sessionId).map(p => p.sessionId);
+  const remoteStreams = useWebRTCGroup(room._id as Id<"rooms">, sessionId, otherSessionIds, streamRef);
   const isHost   = room.hostSessionId === sessionId;
   const started  = !!room.groupStarted;
   const allDone  = players.length >= 1 && players.every(p => p.phase === "done");
@@ -791,20 +827,11 @@ function GroupScanView({ room, sessionId }: {
                 </>
               ) : (
                 <div className="absolute inset-0 bg-neutral-900">
-                  {p.snapshot
-                    ? <img src={p.snapshot} className="absolute inset-0 w-full h-full object-cover" alt={p.name} />
-                    : (
-                      <div className="absolute inset-0 flex flex-col items-center justify-center gap-2">
-                        <div className="w-12 h-12 rounded-full bg-white/8 ring-1 ring-white/12
-                          flex items-center justify-center font-mono text-xl font-bold text-white/25">
-                          {p.name.charAt(0)}
-                        </div>
-                        <span className="font-mono text-[7px] uppercase tracking-widest text-white/25">
-                          Waiting…
-                        </span>
-                      </div>
-                    )
-                  }
+                  <RemoteVideo
+                    stream={remoteStreams[p.sessionId] ?? null}
+                    snapshot={p.snapshot}
+                    name={p.name}
+                  />
                 </div>
               )}
 

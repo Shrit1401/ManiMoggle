@@ -20,6 +20,17 @@ export default defineSchema({
     groupScanStartAt: v.optional(v.number()), // epoch ms when scan fires
   }).index("by_code", ["code"]),
 
+  webrtcSignals: defineTable({
+    roomId: v.id("rooms"),
+    from:   v.string(),
+    to:     v.string(),
+    type:   v.string(), // "offer" | "answer" | "ice"
+    payload: v.string(),
+    ts:     v.number(),
+  })
+    .index("by_room_to", ["roomId", "to"])
+    .index("by_room_from_to", ["roomId", "from", "to"]),
+
   players: defineTable({
     roomId: v.id("rooms"),
     sessionId: v.string(),

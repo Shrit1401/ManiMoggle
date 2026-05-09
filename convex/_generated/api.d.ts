@@ -10,6 +10,7 @@
 
 import type * as players from "../players.js";
 import type * as rooms from "../rooms.js";
+import type * as webrtc from "../webrtc.js";
 
 import type {
   ApiFromModules,
@@ -20,6 +21,7 @@ import type {
 declare const fullApi: ApiFromModules<{
   players: typeof players;
   rooms: typeof rooms;
+  webrtc: typeof webrtc;
 }>;
 
 /**

@@ -342,7 +342,7 @@ export function useFaceLandmarker() {
 
   return {
     status, phase, scores, error,
-    videoRef, canvasRef,
+    videoRef, canvasRef, streamRef,
     retry: start, startScan, resetScan,
     scanProgress, samplesCollected, samplesSkipped,
   };
