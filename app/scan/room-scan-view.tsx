@@ -144,50 +144,58 @@ function ScoreOverlay({ scores, name, label }: { scores: Scores | null; name: st
 
   return (
     <div className="absolute inset-0 pointer-events-none">
-      <div className="absolute top-3 left-3 rounded-xl bg-black/55 backdrop-blur-sm px-3 py-2 shadow-lg">
-        <p className="font-mono text-[7px] tracking-[0.2em] uppercase text-white/45 mb-0.5">PSL Score</p>
-        <p className="font-sans font-black text-[36px] text-white tabular-nums leading-none">{overall}</p>
-        {scores && (
-          <div className="flex items-center gap-1 mt-0.5 mb-1.5">
-            <span className="text-[10px]" style={{ color: tierClr }}>★</span>
-            <span className="font-mono text-[8px] tracking-widest uppercase" style={{ color: tierClr }}>{tierCode}</span>
-          </div>
-        )}
+      {/* Score card — top left */}
+      <div className="absolute top-3 left-3 glass rounded-2xl px-3 py-2.5 shadow-xl max-w-[155px]">
+        <p className="font-mono text-[6.5px] tracking-[0.25em] uppercase text-white/40 mb-0.5">PSL Score</p>
+        <div className="flex items-end gap-1.5 mb-1">
+          <p className="font-sans font-black text-[38px] tabular-nums leading-none"
+            style={{ color: scores ? "#22d3ee" : "white" }}>{overall}</p>
+          {scores && (
+            <div className="mb-1.5">
+              <span className="font-mono text-[7px] tracking-widest uppercase block" style={{ color: tierClr }}>
+                ★ {tierCode}
+              </span>
+            </div>
+          )}
+        </div>
         <div className="space-y-[3px]">
           <div className="flex items-center gap-1">
-            <span className="font-mono text-[7px] text-white/35 w-7 uppercase tracking-widest">DOM</span>
-            <span className="font-mono text-[8px] text-emerald-300 truncate max-w-[90px]">{domTxt}</span>
+            <span className="font-mono text-[6.5px] text-white/28 w-6 uppercase tracking-widest">DOM</span>
+            <span className="font-mono text-[8px] text-emerald-300 truncate max-w-[95px]">{domTxt}</span>
           </div>
           <div className="flex items-center gap-1">
-            <span className="font-mono text-[7px] text-white/35 w-7 uppercase tracking-widest">FLAW</span>
-            <span className="font-mono text-[8px] text-rose-400 truncate max-w-[90px]">{flawTxt}</span>
+            <span className="font-mono text-[6.5px] text-white/28 w-6 uppercase tracking-widest">FLAW</span>
+            <span className="font-mono text-[8px] text-rose-400 truncate max-w-[95px]">{flawTxt}</span>
           </div>
         </div>
       </div>
+
+      {/* Right panel */}
       <div className="absolute top-3 right-3 flex flex-col items-end gap-1.5">
-        <div className="rounded-full bg-black/55 backdrop-blur-sm px-2.5 py-[4px]
-          font-mono text-[7px] tracking-[0.22em] uppercase text-white/60 ring-1 ring-white/15">
+        <div className="glass rounded-full px-2.5 py-[4px] font-mono text-[6.5px] tracking-[0.22em] uppercase text-white/55">
           {label}
         </div>
-        <div className="flex items-center gap-1.5 rounded-xl bg-black/55 backdrop-blur-sm px-2.5 py-1.5 ring-1 ring-white/12">
-          <span className="font-sans font-bold text-[11px] text-white uppercase tracking-[0.08em]">{name}</span>
-          <div className="w-6 h-6 rounded-full bg-white/15 ring-1 ring-white/25
-            flex items-center justify-center font-mono text-[9px] text-white">
+        <div className="flex items-center gap-1.5 glass rounded-xl px-2.5 py-1.5">
+          <span className="font-mono font-bold text-[10px] text-white uppercase tracking-[0.08em]">{name}</span>
+          <div className="w-6 h-6 rounded-full bg-gradient-to-br from-cyan-500/30 to-cyan-500/10
+            ring-1 ring-cyan-400/30 flex items-center justify-center font-mono text-[9px] font-bold text-cyan-300">
             {name.charAt(0)}
           </div>
         </div>
-        <div className="flex rounded-full overflow-hidden ring-1 ring-white/18 font-mono text-[9px] font-semibold">
-          <div className="flex items-center gap-1 bg-gradient-to-r from-orange-500/90 to-amber-500/80 px-2 py-[5px] text-white">
-            <span className="text-[10px] leading-none">🌹</span>
-            <span>{subStr}</span>
+        <div className="flex overflow-hidden rounded-xl ring-1 ring-white/15 font-mono text-[8px] font-bold">
+          <div className="flex items-center gap-1 px-2 py-[5px] text-white"
+            style={{ background: "linear-gradient(135deg, rgba(249,115,22,0.9), rgba(245,158,11,0.8))" }}>
+            <span className="text-[9px]">🌹</span><span>{subStr}</span>
           </div>
           <div className="w-px bg-white/15 self-stretch" />
-          <div className="flex items-center px-2 py-[5px] bg-gradient-to-r from-cyan-500/80 to-sky-500/90 text-white">
-            {eloStr}&nbsp;ELO
+          <div className="flex items-center px-2 py-[5px] text-white"
+            style={{ background: "linear-gradient(135deg, rgba(34,211,238,0.8), rgba(14,165,233,0.85))" }}>
+            {eloStr} ELO
           </div>
         </div>
-        <div className="flex items-center justify-center w-8 h-8 rounded-[7px] bg-black/55 backdrop-blur-sm ring-1 ring-white/15">
-          <span className="font-mono text-[10px] font-bold text-white">{level}</span>
+        <div className="flex flex-col items-center justify-center w-8 h-8 rounded-[8px] glass">
+          <span className="font-mono text-[6px] text-white/30 uppercase leading-none">LVL</span>
+          <span className="font-mono text-[10px] font-bold text-white">{level.replace("L","")}</span>
         </div>
       </div>
     </div>

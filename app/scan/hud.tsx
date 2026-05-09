@@ -1,6 +1,6 @@
 "use client";
 
-import type { Scores } from "./face-rating";
+import type { Scores, TraitKey } from "./face-rating";
 import type { Phase } from "./use-face-landmarker";
 
 interface Props {
@@ -14,29 +14,37 @@ interface Props {
   onReset: () => void;
 }
 
-function CornerBrackets() {
+const TRAIT_CONFIG: { key: TraitKey; label: string; short: string }[] = [
+  { key: "canthalTilt", label: "Eye Tilt",  short: "EYE"  },
+  { key: "jawline",     label: "Jawline",   short: "JAW"  },
+  { key: "symmetry",    label: "Symmetry",  short: "SYM"  },
+  { key: "harmony",     label: "Harmony",   short: "HAR"  },
+  { key: "skin",        label: "Skin",      short: "SKIN" },
+];
+
+function TraitBar({ label, short, value }: { label: string; short: string; value: number }) {
+  const pct = ((value - 1) / 9) * 100;
+  const color = value >= 7.5 ? "#22d3ee" : value >= 5.5 ? "#a3a3a3" : "#f87171";
   return (
-    <>
-      <span className="absolute top-3 left-3 w-6 h-6 sm:w-7 sm:h-7 border-t-2 border-l-2 border-white/50 pointer-events-none" />
-      <span className="absolute top-3 right-3 w-6 h-6 sm:w-7 sm:h-7 border-t-2 border-r-2 border-white/50 pointer-events-none" />
-      <span className="absolute bottom-3 left-3 w-6 h-6 sm:w-7 sm:h-7 border-b-2 border-l-2 border-white/50 pointer-events-none" />
-      <span className="absolute bottom-3 right-3 w-6 h-6 sm:w-7 sm:h-7 border-b-2 border-r-2 border-white/50 pointer-events-none" />
-    </>
+    <div className="flex items-center gap-1.5">
+      <span className="font-mono text-[6.5px] tracking-widest uppercase text-white/30 w-7 shrink-0">{short}</span>
+      <div className="flex-1 h-[3px] rounded-full bg-white/8 overflow-hidden">
+        <div className="h-full rounded-full transition-all duration-500" style={{ width: `${pct}%`, background: color }} />
+      </div>
+      <span className="font-mono text-[9px] tabular-nums text-white/55 w-6 text-right">{value.toFixed(1)}</span>
+    </div>
   );
 }
 
 function CountdownRing({ progress }: { progress: number }) {
-  const r    = 32;
+  const r    = 30;
   const circ = 2 * Math.PI * r;
   return (
-    <svg width="78" height="78" className="rotate-[-90deg]">
-      <circle cx="39" cy="39" r={r} fill="none" stroke="rgba(255,255,255,0.10)" strokeWidth="3.5" />
-      <circle
-        cx="39" cy="39" r={r}
-        fill="none" stroke="#22d3ee" strokeWidth="3.5" strokeLinecap="round"
+    <svg width="72" height="72" className="rotate-[-90deg]">
+      <circle cx="36" cy="36" r={r} fill="none" stroke="rgba(255,255,255,0.08)" strokeWidth="3" />
+      <circle cx="36" cy="36" r={r} fill="none" stroke="#22d3ee" strokeWidth="3" strokeLinecap="round"
         strokeDasharray={`${circ * progress} ${circ}`}
-        style={{ transition: "stroke-dasharray 0.2s linear" }}
-      />
+        style={{ transition: "stroke-dasharray 0.2s linear" }} />
     </svg>
   );
 }
@@ -47,134 +55,158 @@ export function Hud({
   onStart, onReset,
 }: Props) {
   const overallStr = scores ? scores.overall.toFixed(1) : "—";
-  const eloStr     = scores ? String(scores.elo) : "—";
-  const subStr     = scores ? scores.sub : "SUB—";
+  const eloStr     = scores ? String(scores.elo)        : "—";
+  const subStr     = scores ? scores.sub                : "SUB—";
   const domLabel   = scores?.dom.label  ?? "—";
   const flawLabel  = scores?.flaw.label ?? "—";
+  const tierClr    = scores?.tier.starColor ?? "#9ca3af";
   const secsLeft   = phase === "scanning" ? Math.ceil((1 - scanProgress) * 15) : null;
 
   return (
     <>
-      <CornerBrackets />
+      {/* ── Corner brackets ── */}
+      {(["top-3 left-3", "top-3 right-3", "bottom-3 left-3", "bottom-3 right-3"] as const).map((pos, i) => (
+        <span key={i} className={`absolute ${pos} w-6 h-6 sm:w-7 sm:h-7 pointer-events-none`}
+          style={{
+            borderTop:    i < 2 ? "2px solid rgba(34,211,238,0.45)" : undefined,
+            borderBottom: i >= 2 ? "2px solid rgba(34,211,238,0.45)" : undefined,
+            borderLeft:   i % 2 === 0 ? "2px solid rgba(34,211,238,0.45)" : undefined,
+            borderRight:  i % 2 === 1 ? "2px solid rgba(34,211,238,0.45)" : undefined,
+          }} />
+      ))}
 
-      {/* OVERALL SCORE — top left */}
-      <div className="absolute top-4 left-4 min-w-[156px] sm:min-w-[178px] rounded-2xl
-        bg-gradient-to-b from-white/[0.13] to-white/[0.04] backdrop-blur-md
-        ring-1 ring-white/14 px-3.5 py-2.5 sm:px-4 sm:py-3
-        shadow-[0_8px_32px_rgba(0,0,0,0.5)] pointer-events-none">
+      {/* ── Main score card — top left ── */}
+      <div className="absolute top-4 left-4 rounded-2xl glass px-3.5 py-3 sm:px-4 sm:py-3.5
+        shadow-[0_8px_40px_rgba(0,0,0,0.6)] pointer-events-none min-w-[160px]">
+
         {phase === "complete" && (
-          <p className="font-mono uppercase tracking-[0.22em] text-[7px] text-cyan-400 mb-0.5">
-            AI Verdict
+          <p className="font-mono text-[6.5px] tracking-[0.3em] uppercase text-cyan-400 mb-1">
+            ✦ AI Verdict
           </p>
         )}
-        <p className="font-mono uppercase tracking-[0.2em] text-[8px] text-white/50 mb-0.5">
+
+        <p className="font-mono text-[7px] tracking-[0.25em] uppercase text-white/40 mb-0.5">
           PSL Score
         </p>
-        <p className="font-sans font-semibold text-[44px] sm:text-[52px] text-white tabular-nums leading-none mb-1">
-          {overallStr}
-        </p>
-        {scores ? (
-          <div className="flex items-center gap-1.5 mb-2.5">
-            <span style={{ color: scores.tier.starColor }} className="text-xs leading-none">★</span>
-            <span className="font-mono text-[9px] tracking-widest text-emerald-400 uppercase">
-              {scores.tier.code}
-            </span>
-          </div>
-        ) : (
-          <div className="mb-2.5 h-4" />
-        )}
-        <div className="space-y-[4px]">
+
+        <div className="flex items-end gap-2 mb-1">
+          <p className="font-sans font-black text-[50px] sm:text-[56px] leading-none tabular-nums"
+            style={{ color: phase === "complete" ? "#22d3ee" : "white" }}>
+            {overallStr}
+          </p>
+          {scores && (
+            <div className="mb-2 flex flex-col gap-0.5">
+              <span className="text-[10px]" style={{ color: tierClr }}>★</span>
+              <span className="font-mono text-[8px] tracking-widest uppercase" style={{ color: tierClr }}>
+                {scores.tier.code}
+              </span>
+            </div>
+          )}
+        </div>
+
+        {/* DOM / FLAW */}
+        <div className="space-y-[5px] mb-2.5">
           <div className="flex items-center gap-1.5">
-            <span className="font-mono uppercase tracking-[0.12em] text-[8px] text-white/40 w-8 shrink-0">DOM</span>
-            <span className="text-[10px] font-medium text-emerald-300 truncate max-w-[108px]">{domLabel}</span>
+            <span className="font-mono text-[6.5px] tracking-[0.15em] uppercase text-white/30 w-7 shrink-0">DOM</span>
+            <span className="font-mono text-[9px] text-emerald-300 truncate max-w-[110px]">{domLabel}</span>
           </div>
           <div className="flex items-center gap-1.5">
-            <span className="font-mono uppercase tracking-[0.12em] text-[8px] text-white/40 w-8 shrink-0">FLAW</span>
-            <span className="text-[10px] font-medium text-rose-400 truncate max-w-[108px]">{flawLabel}</span>
+            <span className="font-mono text-[6.5px] tracking-[0.15em] uppercase text-white/30 w-7 shrink-0">FLAW</span>
+            <span className="font-mono text-[9px] text-rose-400 truncate max-w-[110px]">{flawLabel}</span>
           </div>
         </div>
+
+        {/* Trait bars — only when scores available */}
+        {scores && (
+          <div className="flex flex-col gap-1.5 pt-2 border-t border-white/[0.06]">
+            {TRAIT_CONFIG.map(t => (
+              <TraitBar key={t.key} label={t.label} short={t.short} value={scores.traits[t.key]} />
+            ))}
+          </div>
+        )}
       </div>
 
-      {/* YOUR SCAN panel — top right */}
-      <div className="absolute top-4 right-4 flex flex-col items-end gap-1.5 pointer-events-none">
-        <div className="rounded-full bg-white/8 px-3 py-[4px] font-mono text-[8px] tracking-[0.22em] uppercase ring-1 ring-white/18 text-white/65">
+      {/* ── Right panel ── */}
+      <div className="absolute top-4 right-4 flex flex-col items-end gap-2 pointer-events-none">
+        {/* Your scan badge */}
+        <div className="rounded-full glass px-3 py-[5px] font-mono text-[7px] tracking-[0.22em] uppercase text-white/50">
           Your Scan
         </div>
-        <div className="flex items-center gap-1.5 rounded-2xl bg-gradient-to-b from-white/[0.12] to-white/[0.04]
-          backdrop-blur-md ring-1 ring-white/14 px-2.5 py-1.5 shadow-[0_8px_32px_rgba(0,0,0,0.5)]">
-          <span className="font-sans font-semibold text-[12px] text-white uppercase tracking-[0.1em]">
-            {userName}
-          </span>
-          <div className="w-6 h-6 rounded-full bg-white/18 ring-1 ring-white/28 flex items-center justify-center text-white text-[9px] font-mono uppercase">
+
+        {/* Name + avatar */}
+        <div className="flex items-center gap-2 glass rounded-2xl px-3 py-2">
+          <span className="font-mono font-bold text-[11px] text-white uppercase tracking-[0.1em]">{userName}</span>
+          <div className="w-7 h-7 rounded-full bg-gradient-to-br from-cyan-500/30 to-cyan-500/10
+            ring-1 ring-cyan-400/30 flex items-center justify-center font-mono text-[10px] font-bold text-cyan-300">
             {userName.charAt(0)}
           </div>
         </div>
-        <div className="flex rounded-full overflow-hidden ring-1 ring-white/22 font-mono text-[10px] font-semibold tracking-wider">
-          <div className="flex items-center gap-1 bg-gradient-to-r from-orange-500/90 to-amber-500/80 px-2.5 py-[6px] text-white">
-            <span className="text-[11px] leading-none">🌹</span>
+
+        {/* SUB | ELO pills */}
+        <div className="flex overflow-hidden rounded-xl ring-1 ring-white/15 font-mono text-[9px] font-bold tracking-wider">
+          <div className="flex items-center gap-1 px-2.5 py-[6px] text-white"
+            style={{ background: "linear-gradient(135deg, rgba(249,115,22,0.9), rgba(245,158,11,0.8))" }}>
+            <span className="text-[10px]">🌹</span>
             <span>{subStr}</span>
           </div>
-          <div className="w-px bg-white/18 self-stretch" />
-          <div className="flex items-center px-2.5 py-[6px] bg-gradient-to-r from-cyan-500/80 to-sky-500/90 text-white">
-            <span>{eloStr}&nbsp;ELO</span>
+          <div className="w-px bg-white/15 self-stretch" />
+          <div className="flex items-center px-2.5 py-[6px] text-white"
+            style={{ background: "linear-gradient(135deg, rgba(34,211,238,0.8), rgba(14,165,233,0.85))" }}>
+            {eloStr} ELO
           </div>
         </div>
-        <div className="flex flex-col items-center justify-center w-9 h-9 rounded-[8px] bg-white/[0.07] ring-1 ring-white/18 self-end">
-          <span className="text-white/45 text-[10px] leading-none">▣</span>
-          <span className="font-mono text-[10px] font-semibold text-white leading-tight mt-[1px]">
-            {scores?.level ?? "L—"}
+
+        {/* Level badge */}
+        <div className="flex flex-col items-center justify-center w-10 h-10 rounded-[10px] glass">
+          <span className="font-mono text-[7px] uppercase text-white/30 leading-none">LVL</span>
+          <span className="font-mono text-[12px] font-bold text-white leading-tight">
+            {scores?.level?.replace("L", "") ?? "—"}
           </span>
         </div>
       </div>
 
-      {/* Bottom center — scan controls */}
+      {/* ── Bottom scan controls ── */}
       <div className="absolute bottom-8 sm:bottom-10 left-1/2 -translate-x-1/2 flex flex-col items-center gap-3">
+
         {phase === "live" && (
-          <button
-            onClick={onStart}
-            className="pointer-events-auto rounded-full bg-white/10 hover:bg-white/18 active:scale-[0.97]
-              ring-1 ring-white/22 px-7 sm:px-8 py-3 font-mono text-[10px] sm:text-[11px]
-              tracking-[0.22em] uppercase text-white transition-all shadow-[0_4px_24px_rgba(0,0,0,0.4)]"
-          >
+          <button onClick={onStart}
+            className="pointer-events-auto rounded-full px-8 py-3.5 font-mono text-[10px] tracking-[0.25em] uppercase
+              text-black font-bold transition-all active:scale-[0.97]
+              shadow-[0_0_35px_rgba(34,211,238,0.3)] hover:shadow-[0_0_50px_rgba(34,211,238,0.45)]"
+            style={{ background: "linear-gradient(135deg, #22d3ee, #06b6d4)" }}>
             Start Scan
           </button>
         )}
 
-        {phase === "scanning" && (
+        {phase === "scanning" && secsLeft !== null && (
           <div className="flex flex-col items-center gap-2 pointer-events-none">
             <div className="relative">
               <CountdownRing progress={scanProgress} />
-              <span className="absolute inset-0 flex items-center justify-center font-mono text-[17px] font-semibold text-white tabular-nums">
+              <span className="absolute inset-0 flex items-center justify-center font-mono text-[18px] font-semibold text-white tabular-nums">
                 {secsLeft}
               </span>
             </div>
-            <p className="font-mono text-[8px] tracking-[0.2em] uppercase text-white/50">
-              Scanning · {samplesCollected} samples
-              {samplesSkipped > 0 && (
-                <span className="text-white/28"> · {samplesSkipped} skipped</span>
-              )}
-            </p>
+            <div className="flex items-center gap-1.5 glass rounded-full px-3 py-1.5">
+              <span className="w-1 h-1 rounded-full bg-cyan-400 animate-pulse" />
+              <span className="font-mono text-[7.5px] tracking-[0.2em] uppercase text-white/50">
+                {samplesCollected} samples
+                {samplesSkipped > 0 && <span className="text-white/25"> · {samplesSkipped} skipped</span>}
+              </span>
+            </div>
           </div>
         )}
 
         {phase === "analyzing" && (
-          <div className="pointer-events-none flex flex-col items-center gap-2">
-            <div className="flex items-center gap-2 rounded-full bg-cyan-500/18 ring-1 ring-cyan-400/35 px-5 py-2.5">
-              <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-ping" />
-              <span className="font-mono text-[9px] tracking-[0.22em] uppercase text-cyan-300">
-                AI Analysis…
-              </span>
-            </div>
+          <div className="pointer-events-none flex items-center gap-2.5 glass rounded-full px-5 py-3">
+            <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-ping" />
+            <span className="font-mono text-[9px] tracking-[0.22em] uppercase text-cyan-300">AI Analysis…</span>
           </div>
         )}
 
         {phase === "complete" && (
-          <button
-            onClick={onReset}
-            className="pointer-events-auto rounded-full bg-white/10 hover:bg-white/18 active:scale-[0.97]
-              ring-1 ring-white/22 px-7 sm:px-8 py-3 font-mono text-[10px] sm:text-[11px]
-              tracking-[0.22em] uppercase text-white transition-all shadow-[0_4px_24px_rgba(0,0,0,0.4)]"
-          >
+          <button onClick={onReset}
+            className="pointer-events-auto glass rounded-full px-8 py-3.5 font-mono text-[10px] tracking-[0.25em]
+              uppercase text-white hover:bg-white/10 active:scale-[0.97] transition-all">
             Rescan
           </button>
         )}
