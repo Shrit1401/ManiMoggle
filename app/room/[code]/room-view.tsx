@@ -629,59 +629,69 @@ function GroupScanView({ room, sessionId }: {
 
   const submitScore    = useMutation(api.players.submitScore);
   const setSnapshotMut = useMutation(api.players.setSnapshot);
-  const scheduleStart  = useMutation(api.rooms.scheduleGroupScan);
+  const startGroupMut  = useMutation(api.rooms.startGroupScan);
   const resetGroup     = useMutation(api.rooms.resetGroupScan);
   const submittedRef   = useRef(false);
+  const prevStarted    = useRef(false);
 
-  const [countdown, setCountdown] = useState<number | null>(null);
+  // Local scan schedule — set when groupStarted flips true (no new schema needed)
+  const [scanStartsAt, setScanStartsAt] = useState<number | null>(null);
+  const [countdown, setCountdown]       = useState<number | null>(null);
 
-  const players         = room.players;
-  const isHost          = room.hostSessionId === sessionId;
-  const groupScanStartAt = room.groupScanStartAt;
-  const allDone         = players.length >= 2 && players.every(p => p.phase === "done");
-  const ranked = [...players]
+  const players  = room.players;
+  const isHost   = room.hostSessionId === sessionId;
+  const started  = !!room.groupStarted;
+  const allDone  = players.length >= 1 && players.every(p => p.phase === "done");
+  const ranked   = [...players]
     .filter(p => p.phase === "done" && p.overall !== undefined)
     .sort((a, b) => (b.overall ?? 0) - (a.overall ?? 0));
 
-  // Send periodic snapshots while camera is active
+  // When groupStarted flips true → schedule scan 4 s from now (client-side clock)
+  useEffect(() => {
+    if (started && !prevStarted.current) {
+      setScanStartsAt(Date.now() + 4000);
+    }
+    prevStarted.current = started;
+  }, [started]);
+
+  // Tick countdown
+  useEffect(() => {
+    if (!scanStartsAt) { setCountdown(null); return; }
+    const tick = () => {
+      const rem = Math.ceil((scanStartsAt - Date.now()) / 1000);
+      setCountdown(rem > 0 ? rem : null);
+    };
+    tick();
+    const iv = setInterval(tick, 150);
+    return () => clearInterval(iv);
+  }, [scanStartsAt]);
+
+  // Fire startScan when countdown expires (re-runs when camera becomes ready too)
+  useEffect(() => {
+    if (!scanStartsAt || phase !== "live" || status !== "ready") return;
+    const delay = scanStartsAt - Date.now();
+    if (delay <= 0) { startScan(); return; }
+    const t = setTimeout(startScan, delay);
+    return () => clearTimeout(t);
+  }, [scanStartsAt, phase, status, startScan]);
+
+  // Send snapshots every 1.5 s while camera active
   useEffect(() => {
     if (status !== "ready") return;
     const send = () => {
       const video = videoRef.current;
       if (!video || video.readyState < 2 || video.videoWidth === 0) return;
       const c = document.createElement("canvas");
-      c.width = 180; c.height = 135;
+      c.width = 200; c.height = 150;
       const ctx = c.getContext("2d");
       if (!ctx) return;
-      ctx.save(); ctx.scale(-1, 1); ctx.drawImage(video, -180, 0, 180, 135); ctx.restore();
-      const url = c.toDataURL("image/jpeg", 0.28);
-      setSnapshotMut({ roomId: room._id as Id<"rooms">, sessionId, snapshot: url }).catch(() => {});
+      ctx.save(); ctx.scale(-1, 1); ctx.drawImage(video, -200, 0, 200, 150); ctx.restore();
+      setSnapshotMut({ roomId: room._id as Id<"rooms">, sessionId, snapshot: c.toDataURL("image/jpeg", 0.3) }).catch(() => {});
     };
     send();
-    const iv = setInterval(send, 2000);
+    const iv = setInterval(send, 1500);
     return () => clearInterval(iv);
   }, [status, videoRef, room._id, sessionId, setSnapshotMut]);
-
-  // Live countdown display
-  useEffect(() => {
-    if (!groupScanStartAt) { setCountdown(null); return; }
-    const update = () => {
-      const rem = Math.ceil((groupScanStartAt - Date.now()) / 1000);
-      setCountdown(rem > 0 ? rem : null);
-    };
-    update();
-    const iv = setInterval(update, 100);
-    return () => clearInterval(iv);
-  }, [groupScanStartAt]);
-
-  // Auto-start scan when the scheduled time arrives
-  useEffect(() => {
-    if (!groupScanStartAt || phase !== "live" || status !== "ready") return;
-    const delay = groupScanStartAt - Date.now();
-    if (delay <= 0) { startScan(); return; }
-    const t = setTimeout(() => startScan(), delay);
-    return () => clearTimeout(t);
-  }, [groupScanStartAt, phase, status, startScan]);
 
   // Auto-submit when scan completes
   useEffect(() => {
@@ -695,52 +705,58 @@ function GroupScanView({ room, sessionId }: {
     });
   }, [phase, scores, room._id, sessionId, submitScore]);
 
-  const rankMedal = (i: number) => i === 0 ? "🥇" : i === 1 ? "🥈" : i === 2 ? "🥉" : `#${i + 1}`;
-  const cols = players.length <= 2 ? "grid-cols-2" : players.length <= 4 ? "grid-cols-2" : "grid-cols-2 sm:grid-cols-3";
+  const rankMedal = (i: number) => ["🥇","🥈","🥉"][i] ?? `#${i + 1}`;
+
+  // Grid: fill screen with no empty cells — dynamic rows + cols
+  const n    = players.length;
+  const cols = n <= 1 ? 1 : 2;
+  const rows = Math.ceil(n / cols);
 
   return (
     <div className="relative flex flex-col bg-black h-[100dvh] overflow-hidden">
 
-      {/* ── Header ── */}
-      <div className="flex items-center justify-between px-4 pt-safe pt-3 pb-2 shrink-0 z-10 bg-black/70 backdrop-blur-sm">
+      {/* ── Minimal header ── */}
+      <div className="flex items-center justify-between px-4 pt-safe pt-3 pb-2 shrink-0 z-10">
         <button onClick={() => router.push("/")}
-          className="font-mono text-[8px] tracking-[0.25em] uppercase text-white/28 hover:text-white/55 p-1">
+          className="font-mono text-[8px] tracking-[0.25em] uppercase text-white/30 hover:text-white/60 transition-colors">
           ← Exit
         </button>
-        <div className="flex flex-col items-center gap-0.5">
-          <span className="font-mono text-[7px] tracking-[0.35em] uppercase text-white/25">Group Scan</span>
-          <CopyCodeRow code={room.code} />
-        </div>
-        {/* Host start button in header — clean, one button only */}
-        {isHost && !groupScanStartAt && !allDone ? (
+        <CopyCodeRow code={room.code} />
+        {isHost && !started && !allDone ? (
           <button
-            onClick={() => scheduleStart({ roomId: room._id as Id<"rooms"> })}
-            disabled={players.length < 2 || status !== "ready"}
-            className="rounded-full px-3 py-1.5 font-mono text-[8px] tracking-[0.18em] uppercase
-              text-black font-bold bg-gradient-to-r from-cyan-400 to-cyan-500
-              shadow-[0_0_20px_rgba(34,211,238,0.3)] disabled:opacity-30 disabled:cursor-not-allowed
-              transition-all active:scale-[0.96]"
+            onClick={() => void startGroupMut({ roomId: room._id as Id<"rooms"> })}
+            className="rounded-full px-4 py-2 font-mono text-[9px] tracking-[0.2em] uppercase
+              font-bold text-black transition-all active:scale-[0.96]
+              bg-gradient-to-r from-cyan-400 to-cyan-500 shadow-[0_0_24px_rgba(34,211,238,0.45)]"
           >
             Start Scan
           </button>
         ) : (
-          <div className="w-16" />
+          <div className="w-20" />
         )}
       </div>
 
-      {/* ── Camera grid ── */}
-      <div className={`grid ${cols} gap-1.5 p-1.5 flex-1 min-h-0 overflow-hidden`}>
+      {/* ── Camera grid — fills remaining height perfectly ── */}
+      <div
+        className="flex-1 min-h-0 grid gap-1 p-1"
+        style={{
+          gridTemplateColumns: `repeat(${cols}, 1fr)`,
+          gridTemplateRows: `repeat(${rows}, 1fr)`,
+        }}
+      >
         {players.map(p => {
           const isMe      = p.sessionId === sessionId;
           const isDone    = p.phase === "done";
           const isScanning = p.phase === "scanning";
+          const myScore   = isDone ? p.overall : undefined;
 
           return (
-            <div key={p._id} className={`relative rounded-xl overflow-hidden bg-neutral-900
-              ${isMe ? "ring-2 ring-cyan-400/60" : "ring-1 ring-white/10"}`}>
+            <div key={p._id}
+              className={`relative rounded-2xl overflow-hidden bg-neutral-950
+                ${isMe ? "ring-2 ring-cyan-400/70" : "ring-1 ring-white/8"}`}>
 
+              {/* ── Background: live camera or snapshot ── */}
               {isMe ? (
-                /* Own tile — live camera */
                 <>
                   <video ref={videoRef} autoPlay muted playsInline
                     className="absolute inset-0 w-full h-full object-cover"
@@ -750,91 +766,104 @@ function GroupScanView({ room, sessionId }: {
                     className="absolute inset-0 w-full h-full object-cover pointer-events-none"
                     style={{ transform: "scaleX(-1)" }}
                   />
+                  {/* Camera loading / error */}
                   {status === "requesting" && (
-                    <div className="absolute inset-0 bg-black/80 flex items-center justify-center">
-                      <div className="w-6 h-6 rounded-full border-2 border-white/20 border-t-cyan-400 animate-spin" />
+                    <div className="absolute inset-0 bg-black/80 flex flex-col items-center justify-center gap-2">
+                      <div className="w-7 h-7 rounded-full border-2 border-white/20 border-t-cyan-400 animate-spin" />
+                      <span className="font-mono text-[7px] tracking-widest uppercase text-white/30">Camera…</span>
                     </div>
                   )}
                   {(status === "denied" || status === "error" || status === "unsupported") && (
-                    <div className="absolute inset-0 bg-black/90 flex flex-col items-center justify-center gap-2 px-2">
-                      <span className="text-lg">📷</span>
-                      <p className="font-mono text-[6px] tracking-widest uppercase text-white/40 text-center">
-                        {status === "denied" ? "Camera denied" : status === "unsupported" ? "Not supported" : (error ?? "Camera failed")}
+                    <div className="absolute inset-0 bg-black/90 flex flex-col items-center justify-center gap-2 px-3 text-center">
+                      <span className="text-2xl">📷</span>
+                      <p className="font-mono text-[7px] tracking-widest uppercase text-white/40">
+                        {status === "denied" ? "Camera denied" : "Camera error"}
                       </p>
                       {status !== "unsupported" && (
                         <button onClick={retry}
-                          className="rounded-full bg-white/10 px-2.5 py-1 font-mono text-[6px] tracking-widest uppercase text-white">
+                          className="rounded-full bg-white/10 hover:bg-white/18 px-3 py-1.5
+                            font-mono text-[7px] tracking-widest uppercase text-white">
                           Retry
                         </button>
                       )}
                     </div>
                   )}
-                  {/* Analyzing overlay */}
-                  {phase === "analyzing" && (
-                    <div className="absolute inset-0 bg-black/50 flex items-center justify-center z-10">
-                      <div className="flex items-center gap-1.5 rounded-full bg-cyan-500/20 ring-1 ring-cyan-400/40 px-3 py-1.5">
-                        <span className="w-1 h-1 rounded-full bg-cyan-400 animate-ping" />
-                        <span className="font-mono text-[7px] tracking-[0.15em] uppercase text-cyan-300">AI…</span>
-                      </div>
-                    </div>
-                  )}
-                  {/* Scan progress ring */}
-                  {phase === "scanning" && (
-                    <div className="absolute top-2 right-2 z-10">
-                      <svg width="30" height="30" className="rotate-[-90deg]">
-                        <circle cx="15" cy="15" r="12" fill="none" stroke="rgba(255,255,255,0.15)" strokeWidth="2.5" />
-                        <circle cx="15" cy="15" r="12" fill="none" stroke="#22d3ee" strokeWidth="2.5"
-                          strokeDasharray={`${2 * Math.PI * 12 * scanProgress} ${2 * Math.PI * 12}`}
-                          strokeLinecap="round" style={{ transition: "stroke-dasharray 0.2s linear" }} />
-                      </svg>
-                    </div>
-                  )}
                 </>
               ) : (
-                /* Others' tiles — latest snapshot */
-                <div className="absolute inset-0">
-                  {p.snapshot ? (
-                    <img src={p.snapshot} className="absolute inset-0 w-full h-full object-cover" alt={p.name} />
-                  ) : (
-                    <div className="absolute inset-0 flex items-center justify-center">
-                      <div className="w-10 h-10 rounded-full bg-white/8 ring-1 ring-white/15
-                        flex items-center justify-center font-mono text-base font-bold text-white/30">
-                        {p.name.charAt(0)}
+                <div className="absolute inset-0 bg-neutral-900">
+                  {p.snapshot
+                    ? <img src={p.snapshot} className="absolute inset-0 w-full h-full object-cover" alt={p.name} />
+                    : (
+                      <div className="absolute inset-0 flex flex-col items-center justify-center gap-2">
+                        <div className="w-12 h-12 rounded-full bg-white/8 ring-1 ring-white/12
+                          flex items-center justify-center font-mono text-xl font-bold text-white/25">
+                          {p.name.charAt(0)}
+                        </div>
+                        <span className="font-mono text-[7px] uppercase tracking-widest text-white/25">
+                          Waiting…
+                        </span>
                       </div>
+                    )
+                  }
+                </div>
+              )}
+
+              {/* ── Dark gradient at bottom ── */}
+              <div className="absolute inset-x-0 bottom-0 h-2/3 bg-gradient-to-t from-black/90 via-black/30 to-transparent pointer-events-none" />
+
+              {/* ── Score card (when done) ── */}
+              {isDone && myScore !== undefined && (
+                <div className="absolute bottom-0 inset-x-0 p-2.5">
+                  <div className="flex items-end gap-1.5">
+                    <span className="font-sans font-black text-[30px] tabular-nums leading-none text-white">
+                      {myScore.toFixed(1)}
+                    </span>
+                    <div className="mb-1 flex flex-col leading-none">
+                      <span className="font-mono text-[8px] font-bold tracking-widest uppercase text-cyan-300">
+                        {p.tierCode}
+                      </span>
+                      <span className="font-mono text-[7px] text-white/40">{p.level}</span>
                     </div>
-                  )}
+                  </div>
+                  <p className="font-mono text-[7px] text-emerald-300 truncate">{p.domLabel}</p>
+                  <p className="font-mono text-[6.5px] text-rose-400/80 truncate">{p.flawLabel}</p>
                 </div>
               )}
 
-              {/* Score overlay when done */}
-              {isDone && (
-                <div className="absolute inset-0 bg-gradient-to-t from-black/95 via-black/40 to-transparent
-                  flex flex-col justify-end p-2">
-                  <p className="font-sans font-black text-[24px] text-white tabular-nums leading-none">
-                    {p.overall?.toFixed(1)}
-                  </p>
-                  <p className="font-mono text-[6px] tracking-widest uppercase text-white/45 mt-0.5">
-                    {p.tierCode} · {p.level}
-                  </p>
-                  <p className="font-mono text-[6px] text-emerald-300 truncate">{p.domLabel}</p>
-                </div>
-              )}
-
-              {/* Scanning pulse */}
-              {isScanning && !isDone && !isMe && (
-                <div className="absolute top-1.5 right-1.5 flex items-center gap-1 rounded-full bg-black/60 px-1.5 py-0.5">
-                  <span className="w-1 h-1 rounded-full bg-cyan-400 animate-pulse" />
-                  <span className="font-mono text-[5.5px] uppercase text-cyan-400">scan</span>
-                </div>
-              )}
-
-              {/* Name tag */}
-              <div className={`absolute ${isDone ? "top-1.5 left-1.5" : "bottom-1.5 left-1.5"}`}>
-                <span className={`font-mono text-[7px] font-bold tracking-widest uppercase
-                  px-1.5 py-0.5 rounded-full bg-black/55 backdrop-blur-sm
+              {/* ── Status indicators ── */}
+              <div className="absolute top-2 inset-x-2 flex items-start justify-between">
+                {/* Name */}
+                <span className={`font-mono text-[7.5px] font-bold tracking-wider uppercase
+                  px-2 py-0.5 rounded-full bg-black/50 backdrop-blur-sm
                   ${isMe ? "text-cyan-300" : "text-white/70"}`}>
                   {isMe ? "YOU" : p.name}
                 </span>
+
+                {/* Scan ring for own tile */}
+                {isMe && phase === "scanning" && (
+                  <svg width="28" height="28" className="rotate-[-90deg] shrink-0">
+                    <circle cx="14" cy="14" r="11" fill="none" stroke="rgba(255,255,255,0.15)" strokeWidth="2.5" />
+                    <circle cx="14" cy="14" r="11" fill="none" stroke="#22d3ee" strokeWidth="2.5"
+                      strokeDasharray={`${2 * Math.PI * 11 * scanProgress} ${2 * Math.PI * 11}`}
+                      strokeLinecap="round" style={{ transition: "stroke-dasharray 0.2s linear" }} />
+                  </svg>
+                )}
+
+                {/* AI pill for own tile */}
+                {isMe && phase === "analyzing" && (
+                  <div className="flex items-center gap-1 rounded-full bg-cyan-500/20 ring-1 ring-cyan-400/40 px-2 py-0.5">
+                    <span className="w-1 h-1 rounded-full bg-cyan-400 animate-ping" />
+                    <span className="font-mono text-[6px] uppercase text-cyan-300">AI</span>
+                  </div>
+                )}
+
+                {/* Scanning pill for others */}
+                {!isMe && isScanning && (
+                  <div className="flex items-center gap-1 rounded-full bg-black/50 px-1.5 py-0.5">
+                    <span className="w-1 h-1 rounded-full bg-cyan-400 animate-pulse" />
+                    <span className="font-mono text-[5.5px] uppercase text-cyan-400">scan</span>
+                  </div>
+                )}
               </div>
             </div>
           );
@@ -843,61 +872,73 @@ function GroupScanView({ room, sessionId }: {
 
       {/* ── Countdown overlay ── */}
       {countdown !== null && (
-        <div className="absolute inset-0 flex items-center justify-center bg-black/75 z-30 pointer-events-none">
-          <div className="flex flex-col items-center gap-2">
-            <p className="font-mono text-[8px] tracking-[0.4em] uppercase text-white/45">Scan starts in</p>
-            <span className="font-mono font-black text-[100px] leading-none text-white tabular-nums">
-              {countdown}
-            </span>
-          </div>
+        <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/80 z-30 pointer-events-none">
+          <p className="font-mono text-[9px] tracking-[0.5em] uppercase text-white/40 mb-2">Get ready</p>
+          <span className="font-mono font-black leading-none text-white tabular-nums"
+            style={{ fontSize: "clamp(80px, 20vw, 130px)" }}>
+            {countdown}
+          </span>
         </div>
       )}
 
-      {/* ── Scanning status bar ── */}
+      {/* ── Scanning bar ── */}
       {phase === "scanning" && (
-        <div className="absolute bottom-4 left-1/2 -translate-x-1/2 z-10 pointer-events-none">
-          <div className="glass rounded-full px-4 py-2 flex items-center gap-2">
-            <span className="w-1 h-1 rounded-full bg-cyan-400 animate-ping shrink-0" />
-            <span className="font-mono text-[7px] tracking-[0.18em] uppercase text-cyan-300">
-              {samplesCollected} samples · {Math.ceil((1 - scanProgress) * 15)}s
+        <div className="absolute bottom-4 inset-x-4 z-10 pointer-events-none">
+          <div className="flex items-center gap-2 rounded-full glass px-4 py-2">
+            <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-ping shrink-0" />
+            <div className="flex-1 h-[3px] rounded-full bg-white/10 overflow-hidden">
+              <div className="h-full bg-cyan-400 rounded-full transition-all duration-200"
+                style={{ width: `${scanProgress * 100}%` }} />
+            </div>
+            <span className="font-mono text-[7px] tracking-widest uppercase text-cyan-300 shrink-0">
+              {Math.ceil((1 - scanProgress) * 15)}s
             </span>
           </div>
         </div>
       )}
 
-      {/* ── Waiting for host ── */}
-      {!groupScanStartAt && !isHost && phase === "live" && !allDone && (
-        <div className="absolute bottom-5 left-0 right-0 flex justify-center pointer-events-none z-10">
+      {/* ── Waiting pill ── */}
+      {!started && !isHost && phase === "live" && !allDone && (
+        <div className="absolute bottom-5 inset-x-0 flex justify-center pointer-events-none z-10">
           <div className="glass rounded-full px-4 py-2 flex items-center gap-2">
             <span className="w-1.5 h-1.5 rounded-full bg-white/25 animate-pulse shrink-0" />
-            <span className="font-mono text-[7px] tracking-[0.22em] uppercase text-white/35">
-              Waiting for host to start…
+            <span className="font-mono text-[7px] tracking-[0.25em] uppercase text-white/35">
+              Waiting for host…
             </span>
           </div>
         </div>
       )}
 
-      {/* ── Final rankings ── */}
+      {/* ── Rankings (slide up when all done) ── */}
       {allDone && ranked.length > 0 && (
-        <div className="absolute inset-x-0 bottom-0 z-20 bg-gradient-to-t from-black via-black/97 to-transparent pt-20 pb-safe pb-5 px-4">
-          <div className="flex flex-col gap-1.5 max-w-sm mx-auto">
-            <p className="font-mono text-[7px] tracking-[0.4em] uppercase text-amber-400/60 text-center mb-1">
-              Final Rankings
+        <div className="absolute inset-x-0 bottom-0 z-20 bg-gradient-to-t from-black via-black/98 to-transparent pt-24 pb-safe pb-6 px-4">
+          <div className="flex flex-col gap-2 max-w-sm mx-auto">
+            <p className="font-mono text-[7px] tracking-[0.45em] uppercase text-amber-400/55 text-center mb-0.5">
+              ✦ Final Rankings
             </p>
             {ranked.map((p, i) => (
-              <div key={p._id} className={`flex items-center gap-3 px-3 py-2.5 rounded-xl ring-1
-                ${i === 0 ? "bg-amber-400/[0.08] ring-amber-400/25"
-                  : p.sessionId === sessionId ? "bg-cyan-500/[0.05] ring-cyan-400/15"
-                  : "bg-white/[0.03] ring-white/8"}`}>
-                <span className="text-[14px] w-5 text-center shrink-0">{rankMedal(i)}</span>
-                <span className={`font-sans font-bold text-[11px] tracking-[0.08em] uppercase flex-1 truncate
-                  ${i === 0 ? "text-amber-400" : p.sessionId === sessionId ? "text-cyan-300" : "text-white/70"}`}>
-                  {p.name}
-                  {p.sessionId === sessionId && (
-                    <span className="ml-1 font-mono text-[7px] text-white/30 tracking-widest">you</span>
-                  )}
-                </span>
-                <span className="font-sans font-black text-[20px] text-white tabular-nums shrink-0">
+              <div key={p._id} className={`flex items-center gap-3 px-3.5 py-3 rounded-2xl ring-1
+                ${i === 0 ? "bg-amber-400/10 ring-amber-400/30"
+                  : p.sessionId === sessionId ? "bg-cyan-500/8 ring-cyan-400/20"
+                  : "bg-white/[0.04] ring-white/10"}`}>
+                <span className="text-base w-5 text-center shrink-0">{rankMedal(i)}</span>
+                <div className="w-8 h-8 rounded-full ring-1 ring-white/20 bg-white/8 shrink-0
+                  flex items-center justify-center font-mono text-[11px] font-bold text-white">
+                  {p.name.charAt(0)}
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className={`font-sans font-bold text-[12px] tracking-[0.06em] uppercase truncate
+                    ${i === 0 ? "text-amber-400" : p.sessionId === sessionId ? "text-cyan-300" : "text-white/75"}`}>
+                    {p.name}
+                    {p.sessionId === sessionId && (
+                      <span className="ml-1.5 font-mono text-[6.5px] text-white/30 tracking-widest normal-case">you</span>
+                    )}
+                  </p>
+                  <p className="font-mono text-[7px] text-white/30 uppercase truncate">
+                    {p.domLabel} · {p.tierCode}
+                  </p>
+                </div>
+                <span className="font-sans font-black text-[22px] text-white tabular-nums shrink-0 leading-none">
                   {p.overall?.toFixed(1)}
                 </span>
               </div>
@@ -906,11 +947,13 @@ function GroupScanView({ room, sessionId }: {
               <button
                 onClick={() => {
                   submittedRef.current = false;
+                  prevStarted.current = false;
+                  setScanStartsAt(null);
                   resetScan();
                   void resetGroup({ roomId: room._id as Id<"rooms"> });
                 }}
-                className="mt-1 w-full rounded-full bg-white/8 hover:bg-white/14 ring-1 ring-white/15
-                  py-3 font-mono text-[9px] tracking-[0.22em] uppercase text-white transition-all">
+                className="mt-2 w-full rounded-full bg-white/8 hover:bg-white/14 ring-1 ring-white/12
+                  py-3.5 font-mono text-[10px] tracking-[0.25em] uppercase text-white/80 transition-all">
                 Scan Again
               </button>
             )}
