@@ -72,6 +72,8 @@ export function useFaceLandmarker() {
   const streamRef        = useRef<MediaStream | null>(null);
   const landmarkerRef    = useRef<FaceLandmarker | null>(null);
   const smoothedRef      = useRef<Scores | null>(null);
+  const rawScoresRef     = useRef<Scores | null>(null);   // landmark-only aggregate
+  const aiRatingRef      = useRef<AIRating | null>(null); // Gemini output
   const lastUpdateRef    = useRef(0);
   const lastTsRef        = useRef(-1);
   const lastVideoTimeRef = useRef(-1);
@@ -109,10 +111,12 @@ export function useFaceLandmarker() {
   }, []);
 
   const resetScan = useCallback(() => {
-    phaseRef.current    = "live";
-    samplesRef.current  = [];
-    skippedRef.current  = 0;
-    smoothedRef.current = null;
+    phaseRef.current     = "live";
+    samplesRef.current   = [];
+    skippedRef.current   = 0;
+    smoothedRef.current  = null;
+    rawScoresRef.current = null;
+    aiRatingRef.current  = null;
     setPhase("live");
     setScores(null);
     setScanProgress(0);
@@ -123,10 +127,12 @@ export function useFaceLandmarker() {
   const start = useCallback(async () => {
     stopEverything();
     setError(null);
-    phaseRef.current    = "live";
-    samplesRef.current  = [];
-    skippedRef.current  = 0;
-    smoothedRef.current = null;
+    phaseRef.current     = "live";
+    samplesRef.current   = [];
+    skippedRef.current   = 0;
+    smoothedRef.current  = null;
+    rawScoresRef.current = null;
+    aiRatingRef.current  = null;
     setPhase("live");
     setScores(null);
     setScanProgress(0);
@@ -139,6 +145,7 @@ export function useFaceLandmarker() {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
         video: { facingMode: { ideal: "user" }, width: { ideal: 1280 }, height: { ideal: 720 } },
+        audio: true,
       });
       if (!mountedRef.current) { stream.getTracks().forEach((t) => t.stop()); return; }
       streamRef.current = stream;
@@ -167,6 +174,7 @@ export function useFaceLandmarker() {
       setStatus("ready");
 
       const loop = () => {
+        if (!mountedRef.current) return;
         const v  = videoRef.current;
         const c  = canvasRef.current;
         const lm = landmarkerRef.current;
@@ -187,7 +195,7 @@ export function useFaceLandmarker() {
           lastTsRef.current = ts;
 
           let pts: { x: number; y: number; z: number }[] | undefined;
-          try { pts = lm.detectForVideo(v, ts).faceLandmarks?.[0]; }
+          try { pts = lm.detectForVideo(v, ts)?.faceLandmarks?.[0]; }
           catch { rafRef.current = requestAnimationFrame(loop); return; }
 
           if (pts?.length === 478) {
@@ -288,11 +296,17 @@ export function useFaceLandmarker() {
                     ? aggregateMedian(samplesRef.current)
                     : smoothedRef.current;
 
+                  // Save landmark-only scores before AI call
+                  rawScoresRef.current = fallback;
+
                   void (async () => {
                     let final: Scores | null = null;
                     if (frame) {
                       const ai = await rateFromImage(frame);
-                      if (ai) final = aiToScores(ai);
+                      if (ai) {
+                        aiRatingRef.current = ai; // save raw AI output for analytics
+                        final = aiToScores(ai);
+                      }
                     }
                     if (!final) final = fallback;
                     if (final && mountedRef.current) {
@@ -345,5 +359,8 @@ export function useFaceLandmarker() {
     videoRef, canvasRef, streamRef,
     retry: start, startScan, resetScan,
     scanProgress, samplesCollected, samplesSkipped,
+    // Available after phase === "complete" — used for analytics
+    rawScores: rawScoresRef.current,
+    aiRating: aiRatingRef.current,
   };
 }

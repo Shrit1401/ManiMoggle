@@ -5,9 +5,8 @@ import { useMutation } from "convex/react";
 import { api } from "../../convex/_generated/api";
 import type { Id } from "../../convex/_generated/dataModel";
 import { useFaceLandmarker } from "./use-face-landmarker";
-import type { Scores } from "./face-rating";
-import { rateFromImage, captureVideoFrame } from "./ai-rating";
-import { overallFromMean, traitMean } from "./face-rating";
+import { useWebRTCGroup } from "./use-webrtc-group";
+import type { Scores, TraitKey } from "./face-rating";
 
 export type OpponentData = {
   name: string;
@@ -22,6 +21,7 @@ export type OpponentData = {
   flawLabel?: string;
   wins?: number;
   losses?: number;
+  liveScore?: number;
 };
 
 interface Props {
@@ -29,103 +29,38 @@ interface Props {
   sessionId: string;
   playerName: string;
   opponent: OpponentData | null;
+  opponentSessionId?: string | null;
   onDone: () => void;
 }
 
-// ─── Photo snap overlay ───────────────────────────────────────────────────────
+// ─── Sub-score trait bars (5 named parameters from Omoggle article) ──────────
 
-function PhotoSnap({
-  videoRef,
-  onContinue,
-}: {
-  videoRef: React.RefObject<HTMLVideoElement | null>;
-  onContinue: () => void;
-}) {
-  const [step, setStep]   = useState<"snap" | "processing" | "preview">("snap");
-  const [score, setScore] = useState<number | null>(null);
+const DISPLAYED_TRAITS: { key: TraitKey; label: string }[] = [
+  { key: "symmetry",    label: "Symmetry" },
+  { key: "harmony",     label: "Harmony"  },
+  { key: "jawline",     label: "Jaw"      },
+  { key: "canthalTilt", label: "Canthal"  },
+  { key: "skin",        label: "Skin"     },
+];
 
-  const handleSnap = async () => {
-    const video = videoRef.current;
-    if (!video) return;
-    const frame = captureVideoFrame(video);
-    if (!frame) { onContinue(); return; }
-    setStep("processing");
-    try {
-      const ai = await rateFromImage(frame);
-      if (ai) {
-        const vals = Object.values(ai.traits);
-        const mean = vals.reduce((a, b) => a + b, 0) / vals.length;
-        setScore(overallFromMean(mean));
-      }
-    } catch { /* ignore */ }
-    setStep("preview");
-  };
-
+function TraitBars({ traits }: { traits: Record<TraitKey, number> }) {
   return (
-    <div className="absolute inset-0 z-30 flex flex-col items-center justify-end pb-10 px-5">
-      {/* dark gradient from bottom */}
-      <div className="absolute inset-0 bg-gradient-to-t from-black/85 via-black/30 to-transparent pointer-events-none" />
-
-      {step === "snap" && (
-        <div className="relative flex flex-col items-center gap-4 w-full max-w-xs">
-          <p className="font-mono text-[7px] tracking-[0.35em] uppercase text-white/40">
-            Step 1 of 2 · Quick Photo Read
-          </p>
-          <p className="font-sans font-bold text-[15px] tracking-[0.06em] uppercase text-white text-center">
-            Snap a selfie for your initial PSL read
-          </p>
-          <button
-            onClick={handleSnap}
-            className="w-full rounded-full bg-white/15 hover:bg-white/25 active:scale-[0.97]
-              ring-2 ring-white/30 py-4 font-mono text-[11px] tracking-[0.28em] uppercase text-white
-              transition-all shadow-[0_0_30px_rgba(255,255,255,0.08)]"
-          >
-            SNAP SELFIE
-          </button>
-          <button
-            onClick={onContinue}
-            className="font-mono text-[8px] tracking-[0.2em] uppercase text-white/25 hover:text-white/45"
-          >
-            Skip →
-          </button>
-        </div>
-      )}
-
-      {step === "processing" && (
-        <div className="relative flex flex-col items-center gap-3">
-          <div className="w-8 h-8 rounded-full border-2 border-white/20 border-t-cyan-400 animate-spin" />
-          <p className="font-mono text-[8px] tracking-[0.25em] uppercase text-white/50">
-            AI Reading Face…
-          </p>
-        </div>
-      )}
-
-      {step === "preview" && (
-        <div className="relative flex flex-col items-center gap-4 w-full max-w-xs">
-          <p className="font-mono text-[7px] tracking-[0.35em] uppercase text-white/40">
-            Initial PSL Read
-          </p>
-          <div className="flex flex-col items-center gap-1">
-            <span className="font-sans font-black text-[56px] text-white tabular-nums leading-none">
-              {score !== null ? score.toFixed(1) : "—"}
-            </span>
-            <span className="font-mono text-[8px] tracking-[0.3em] uppercase text-white/35">
-              AI First Impression
-            </span>
+    <div className="flex flex-col gap-[4px] mt-2">
+      {DISPLAYED_TRAITS.map(({ key, label }) => {
+        const val = traits[key];
+        if (val === undefined) return null;
+        const pct = Math.round(((val - 1) / 9) * 100);
+        const color = val >= 7 ? "#22d3ee" : val >= 5 ? "#fbbf24" : "#f87171";
+        return (
+          <div key={key} className="flex items-center gap-1.5">
+            <span className="font-mono text-[5px] text-white/30 uppercase tracking-widest w-10 shrink-0">{label}</span>
+            <div className="flex-1 h-[2.5px] rounded-full bg-white/10 overflow-hidden">
+              <div className="h-full rounded-full transition-all duration-500" style={{ width: `${pct}%`, background: color }} />
+            </div>
+            <span className="font-mono text-[5.5px] text-white/45 tabular-nums w-5 text-right shrink-0">{val.toFixed(1)}</span>
           </div>
-          <p className="font-mono text-[7px] tracking-widest text-white/30 text-center">
-            The live scan will refine your score over 15 seconds
-          </p>
-          <button
-            onClick={onContinue}
-            className="w-full rounded-full bg-cyan-500/20 hover:bg-cyan-500/35 active:scale-[0.97]
-              ring-1 ring-cyan-400/40 py-4 font-mono text-[11px] tracking-[0.28em] uppercase text-cyan-300
-              transition-all"
-          >
-            BEGIN LIVE SCAN →
-          </button>
-        </div>
-      )}
+        );
+      })}
     </div>
   );
 }
@@ -168,6 +103,7 @@ function ScoreOverlay({ scores, name, label }: { scores: Scores | null; name: st
             <span className="font-mono text-[8px] text-rose-400 truncate max-w-[95px]">{flawTxt}</span>
           </div>
         </div>
+        {scores && <TraitBars traits={scores.traits} />}
       </div>
 
       {/* Right panel */}
@@ -204,7 +140,12 @@ function ScoreOverlay({ scores, name, label }: { scores: Scores | null; name: st
 
 // ─── Opponent panel ────────────────────────────────────────────────────────────
 
-function OpponentPanel({ opponent }: { opponent: OpponentData | null }) {
+function OpponentPanel({ opponent, stream }: { opponent: OpponentData | null; stream: MediaStream | null }) {
+  const videoRef = useRef<HTMLVideoElement>(null);
+  useEffect(() => {
+    if (videoRef.current) videoRef.current.srcObject = stream;
+  }, [stream]);
+
   if (!opponent) {
     return (
       <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-neutral-950">
@@ -221,7 +162,7 @@ function OpponentPanel({ opponent }: { opponent: OpponentData | null }) {
     overall: opponent.overall ?? 0,
     elo:     opponent.elo ?? 0,
     sub:     (opponent.sub ?? "SUB3") as Scores["sub"],
-    tier:    { code: (opponent.tierCode ?? "MTN") as Scores["tier"]["code"], starColor: opponent.tierColor ?? "#fbbf24" },
+    tier:    { code: (opponent.tierCode ?? "NRM") as Scores["tier"]["code"], starColor: opponent.tierColor ?? "#d1d5db" },
     level:   opponent.level ?? "L1",
     dom:     { label: opponent.domLabel ?? "—", value: opponent.overall ?? 0 },
     flaw:    { label: opponent.flawLabel ?? "—", value: 0 },
@@ -230,48 +171,68 @@ function OpponentPanel({ opponent }: { opponent: OpponentData | null }) {
 
   return (
     <div className="absolute inset-0 bg-neutral-950">
-      <div className="absolute inset-0 opacity-[0.03]"
-        style={{ backgroundImage: "repeating-linear-gradient(0deg,#fff 0px,#fff 1px,transparent 1px,transparent 40px),repeating-linear-gradient(90deg,#fff 0px,#fff 1px,transparent 1px,transparent 40px)" }} />
+      {stream && (
+        <video ref={videoRef} autoPlay playsInline
+          className="absolute inset-0 w-full h-full object-cover"
+          style={{ objectPosition: "center 20%" }}
+        />
+      )}
+      {!stream && (
+        <div className="absolute inset-0 opacity-[0.03]"
+          style={{ backgroundImage: "repeating-linear-gradient(0deg,#fff 0px,#fff 1px,transparent 1px,transparent 40px),repeating-linear-gradient(90deg,#fff 0px,#fff 1px,transparent 1px,transparent 40px)" }} />
+      )}
+      <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-transparent to-black/30 pointer-events-none" />
       {done ? (
         <ScoreOverlay scores={scores} name={opponent.name} label="ENEMY SCAN" />
       ) : scanning ? (
-        <div className="absolute inset-0 flex flex-col items-center justify-center gap-3">
-          <div className="w-14 h-14 rounded-full bg-white/5 ring-2 ring-cyan-400/30
-            flex items-center justify-center font-mono text-xl font-bold text-cyan-300">
-            {opponent.name.charAt(0)}
-          </div>
-          <p className="font-sans font-bold text-[14px] tracking-[0.08em] uppercase text-white/70">{opponent.name}</p>
-          <div className="flex items-center gap-1.5">
+        <div className="absolute inset-0 pointer-events-none">
+          <div className="absolute top-3 right-3 flex items-center gap-1.5">
             <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-ping" />
             <span className="font-mono text-[8px] tracking-widest uppercase text-cyan-400">Scanning…</span>
           </div>
-          <div className="absolute top-3 right-3 rounded-full bg-black/40 px-2.5 py-[4px]
-            font-mono text-[7px] tracking-[0.22em] uppercase text-white/45 ring-1 ring-white/12">
-            ENEMY SCAN
-          </div>
+          {/* Live score during scanning */}
+          {opponent.liveScore !== undefined && (
+            <div className="absolute bottom-3 left-3">
+              <span className="font-sans font-black text-[42px] tabular-nums leading-none text-white/80 drop-shadow-lg">
+                {opponent.liveScore.toFixed(1)}
+              </span>
+              <span className="font-mono text-[8px] text-cyan-300 ml-1.5 uppercase tracking-widest">LIVE</span>
+            </div>
+          )}
+          {!stream && (
+            <div className="absolute inset-0 flex flex-col items-center justify-center gap-3">
+              <div className="w-14 h-14 rounded-full bg-white/5 ring-2 ring-cyan-400/30
+                flex items-center justify-center font-mono text-xl font-bold text-cyan-300">
+                {opponent.name.charAt(0)}
+              </div>
+              <p className="font-sans font-bold text-[14px] tracking-[0.08em] uppercase text-white/70">{opponent.name}</p>
+            </div>
+          )}
         </div>
       ) : (
-        <div className="absolute inset-0 flex flex-col items-center justify-center gap-3">
-          <div className="w-14 h-14 rounded-full bg-white/5 ring-2 ring-white/15
-            flex items-center justify-center font-mono text-xl font-bold text-white/50">
-            {opponent.name.charAt(0)}
+        !stream && (
+          <div className="absolute inset-0 flex flex-col items-center justify-center gap-3">
+            <div className="w-14 h-14 rounded-full bg-white/5 ring-2 ring-white/15
+              flex items-center justify-center font-mono text-xl font-bold text-white/50">
+              {opponent.name.charAt(0)}
+            </div>
+            <p className="font-sans font-bold text-[14px] tracking-[0.08em] uppercase text-white/50">{opponent.name}</p>
+            <span className="font-mono text-[8px] tracking-widest uppercase text-white/22">Ready</span>
           </div>
-          <p className="font-sans font-bold text-[14px] tracking-[0.08em] uppercase text-white/50">{opponent.name}</p>
-          <span className="font-mono text-[8px] tracking-widest uppercase text-white/22">Ready</span>
-          <div className="absolute top-3 right-3 rounded-full bg-black/40 px-2.5 py-[4px]
-            font-mono text-[7px] tracking-[0.22em] uppercase text-white/35 ring-1 ring-white/10">
-            ENEMY SCAN
-          </div>
-        </div>
+        )
       )}
+      <div className="absolute top-3 right-3 rounded-full bg-black/40 px-2.5 py-[4px]
+        font-mono text-[7px] tracking-[0.22em] uppercase text-white/45 ring-1 ring-white/12">
+        {opponent.name.toUpperCase()}
+      </div>
     </div>
   );
 }
 
 // ─── VS bar ───────────────────────────────────────────────────────────────────
 
-function VsBar({ myScore, oppScore, phase, scanProgress, onStart }: {
-  myScore: number; oppScore: number; phase: string; scanProgress: number; onStart: () => void;
+function VsBar({ myScore, oppScore, phase, scanProgress }: {
+  myScore: number; oppScore: number; phase: string; scanProgress: number;
 }) {
   const total   = myScore + oppScore;
   const myFrac  = total > 0 ? myScore / total : 0.5;
@@ -302,14 +263,6 @@ function VsBar({ myScore, oppScore, phase, scanProgress, onStart }: {
           ${mogging ? "text-cyan-400" : mogged ? "text-rose-400" : "text-white/30"}`}>
           {statusText}
         </span>
-        {phase === "live" && (
-          <button onClick={onStart}
-            className="rounded-full bg-white/10 hover:bg-white/18 active:scale-[0.97]
-              ring-1 ring-white/20 px-5 py-1.5 font-mono text-[9px] tracking-[0.22em]
-              uppercase text-white transition-all">
-            Start Scan
-          </button>
-        )}
         {phase === "scanning" && (
           <span className="font-mono text-[8px] tracking-[0.15em] text-white/40">{secsLeft}s left</span>
         )}
@@ -363,31 +316,73 @@ function TimerBar({ phase, scanProgress, myReady, oppReady }: {
 
 // ─── Main component ───────────────────────────────────────────────────────────
 
-export function RoomScanView({ roomId, sessionId, playerName, opponent, onDone }: Props) {
+export function RoomScanView({ roomId, sessionId, playerName, opponent, opponentSessionId, onDone }: Props) {
   const {
     status, phase, scores, error,
-    videoRef, canvasRef,
-    retry, startScan, resetScan,
-    scanProgress,
+    videoRef, canvasRef, streamRef,
+    retry, startScan,
+    scanProgress, samplesCollected, samplesSkipped,
+    rawScores, aiRating,
   } = useFaceLandmarker();
 
-  const submitScore  = useMutation(api.players.submitScore);
-  const submittedRef = useRef(false);
+  // Only connect WebRTC once the camera stream is ready (so tracks get added immediately)
+  const oppIds = status === "ready" && opponentSessionId ? [opponentSessionId] : [];
+  const remoteStreams = useWebRTCGroup(roomId, sessionId, oppIds, streamRef);
+  const opponentStream = opponentSessionId ? (remoteStreams[opponentSessionId] ?? null) : null;
+
+  const submitScore   = useMutation(api.players.submitScore);
+  const saveScanData  = useMutation(api.players.saveFaceScanData);
+  const setLiveScore  = useMutation(api.players.setLiveScore);
+  const setPhaseMut   = useMutation(api.players.setPhase);
+  const submittedRef  = useRef(false);
   const [showDone, setShowDone] = useState(false);
 
-  // Photo snap state — shown before user starts the scan
-  const [snapDone, setSnapDone] = useState(false);
+  // Capture mutation + ids in refs so cleanup can use them after unmount
+  const submitScoreRef = useRef(submitScore);
+  submitScoreRef.current = submitScore;
+  const roomIdRef     = useRef(roomId);
+  roomIdRef.current   = roomId;
+  const sessionIdRef  = useRef(sessionId);
+  sessionIdRef.current = sessionId;
 
-  const showSnap = status === "ready" && phase === "live" && !snapDone;
+  // 5-second auto-countdown → auto-start scan
+  const [countdown, setCountdown] = useState<number | null>(null);
+  useEffect(() => {
+    if (status !== "ready" || phase !== "live") return;
+    let n = 5;
+    setCountdown(5);
+    const iv = setInterval(() => {
+      n -= 1;
+      if (n <= 0) {
+        clearInterval(iv);
+        setCountdown(null);
+        startScan();
+      } else {
+        setCountdown(n);
+      }
+    }, 1000);
+    return () => { clearInterval(iv); setCountdown(null); };
+  }, [status, phase, startScan]);
 
-  const handleSnapContinue = () => {
-    setSnapDone(true);
-  };
+  // Mark self as scanning in Convex so battle partner can auto-navigate
+  useEffect(() => {
+    if (phase === "scanning") {
+      void setPhaseMut({ roomId, sessionId, phase: "scanning" });
+    }
+  }, [phase, roomId, sessionId, setPhaseMut]);
 
-  const handleStartScan = () => {
-    setSnapDone(true); // ensure snap dismissed
-    startScan();
-  };
+  // Push live score to Convex every 2 s during scanning so others can see it
+  const scoresRef = useRef<typeof scores>(null);
+  scoresRef.current = scores;
+  useEffect(() => {
+    if (phase !== "scanning") return;
+    const iv = setInterval(() => {
+      if (scoresRef.current) {
+        void setLiveScore({ roomId, sessionId, liveScore: scoresRef.current.overall });
+      }
+    }, 2000);
+    return () => clearInterval(iv);
+  }, [phase, roomId, sessionId, setLiveScore]);
 
   // Auto-submit when scan complete
   useEffect(() => {
@@ -407,10 +402,44 @@ export function RoomScanView({ roomId, sessionId, playerName, opponent, onDone }
     }).then(() => {
       setTimeout(onDone, 2000);
     });
-  }, [phase, scores, roomId, sessionId, submitScore, onDone]);
+    void saveScanData({
+      roomId, sessionId,
+      capturedAt: Date.now(),
+      rawTraitsJson:    rawScores ? JSON.stringify(rawScores.traits) : undefined,
+      rawOverall:       rawScores?.overall,
+      aiTraitsJson:     aiRating ? JSON.stringify(aiRating.traits) : undefined,
+      aiOverall:        aiRating ? Object.values(aiRating.traits).reduce((s, v) => s + v, 0) / 6 : undefined,
+      aiDomLabel:       aiRating?.dom.label,
+      aiFlawLabel:      aiRating?.flaw.label,
+      finalOverall:     scores.overall,
+      finalElo:         scores.elo,
+      finalSub:         scores.sub,
+      finalTierCode:    scores.tier.code,
+      finalLevel:       scores.level,
+      finalDomLabel:    scores.dom.label,
+      finalFlawLabel:   scores.flaw.label,
+      samplesCollected,
+      samplesSkipped,
+    }).catch(() => {});
+  }, [phase, scores, rawScores, aiRating, roomId, sessionId, submitScore, saveScanData, onDone, samplesCollected, samplesSkipped]);
+
+  // Forfeit on unmount if scan was not completed (player left mid-scan)
+  useEffect(() => {
+    return () => {
+      if (!submittedRef.current) {
+        void submitScoreRef.current({
+          roomId: roomIdRef.current,
+          sessionId: sessionIdRef.current,
+          overall: 1, elo: 57, sub: "SUB1",
+          tierCode: "BCK", tierColor: "#6b7280",
+          level: "L0", domLabel: "—", flawLabel: "Left early",
+        }).catch(() => {});
+      }
+    };
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const myScore  = scores?.overall ?? 0;
-  const oppScore = opponent?.overall ?? 0;
+  const oppScore = opponent?.overall ?? opponent?.liveScore ?? 0;
   const oppReady = opponent?.phase === "done";
 
   return (
@@ -459,9 +488,14 @@ export function RoomScanView({ roomId, sessionId, playerName, opponent, onDone }
 
         <ScoreOverlay scores={scores} name={playerName} label="YOUR SCAN" />
 
-        {/* Photo snap overlay — shown before scan starts */}
-        {showSnap && (
-          <PhotoSnap videoRef={videoRef} onContinue={handleSnapContinue} />
+        {/* Auto-countdown overlay */}
+        {countdown !== null && (
+          <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/60 z-10">
+            <p className="font-mono text-[9px] tracking-[0.5em] uppercase text-white/50 mb-2">Get ready</p>
+            <span className="font-mono font-black text-[100px] tabular-nums leading-none text-white">
+              {countdown}
+            </span>
+          </div>
         )}
 
         {phase === "analyzing" && (
@@ -488,12 +522,11 @@ export function RoomScanView({ roomId, sessionId, playerName, opponent, onDone }
         oppScore={oppScore}
         phase={phase}
         scanProgress={scanProgress}
-        onStart={handleStartScan}
       />
 
       {/* Opponent panel (bottom half) */}
       <div className="flex-1 relative overflow-hidden min-h-0">
-        <OpponentPanel opponent={opponent} />
+        <OpponentPanel opponent={opponent} stream={opponentStream} />
       </div>
     </div>
   );

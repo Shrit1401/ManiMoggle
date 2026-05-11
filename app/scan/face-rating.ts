@@ -14,7 +14,8 @@ export type Scores = {
   flaw: { label: string; value: number };
   elo:  number;
   sub:  "SUB1" | "SUB2" | "SUB3" | "SUB4" | "SUB5";
-  tier: { code: "LTN" | "MTN" | "HTN"; starColor: string };
+  // 5-tier system matching Omoggle article: BCK < NRM < HTN < CHS < MOG
+  tier: { code: "BCK" | "NRM" | "HTN" | "CHS" | "MOG"; starColor: string };
   level: string;
   traits: Record<TraitKey, number>;
 };
@@ -90,11 +91,20 @@ function jawlineScore(lm: LM[]): number {
 // ─── 4. Harmony — combined facial proportion sub-score ────────────────────────
 // Weights: midface thirds 35%, lips 25%, FWHR 25%, interocular 15%
 
-function midfaceRaw(lm: LM[]): number {
-  const upper = Math.abs(lm[1].y - lm[6].y);
-  const lower = Math.abs(lm[152].y - lm[1].y);
-  if (lower === 0) return 5.5;
-  return clamp(9.5 - Math.abs(upper / lower - 0.85) * 16, 1, 10);
+// Classical facial thirds: forehead (hairline→glabella), midface (glabella→subnasale),
+// lower face (subnasale→chin). Rule of thirds = all three equal.
+// Landmarks: 10=forehead top, 168=glabella/nose-bridge, 94=subnasale, 152=chin
+function facialThirdsRaw(lm: LM[]): number {
+  const t1 = Math.abs(lm[168].y - lm[10].y);  // forehead to glabella
+  const t2 = Math.abs(lm[94].y  - lm[168].y); // glabella to subnasale
+  const t3 = Math.abs(lm[152].y - lm[94].y);  // subnasale to chin
+  const total = t1 + t2 + t3;
+  if (total < 0.01) return 5.5;
+  const ideal = total / 3;
+  // Sum of per-third deviations from ideal, normalised to total height
+  const dev = (Math.abs(t1 - ideal) + Math.abs(t2 - ideal) + Math.abs(t3 - ideal)) / total;
+  // dev=0 (perfect thirds) → 9.5; dev≈0.3 (30% off) → ~4
+  return clamp(9.5 - dev * 18, 1, 10);
 }
 
 function lipHarmonyRaw(lm: LM[]): number {
@@ -123,10 +133,10 @@ function interocularRaw(lm: LM[]): number {
 
 function harmonyScore(lm: LM[]): number {
   return clamp(
-    midfaceRaw(lm)     * 0.35 +
-    lipHarmonyRaw(lm)  * 0.25 +
-    fwhrRaw(lm)        * 0.25 +
-    interocularRaw(lm) * 0.15,
+    facialThirdsRaw(lm) * 0.35 +
+    lipHarmonyRaw(lm)   * 0.25 +
+    fwhrRaw(lm)         * 0.25 +
+    interocularRaw(lm)  * 0.15,
     1, 10,
   );
 }
@@ -219,11 +229,14 @@ function categorize(overall: number, traits: Record<TraitKey, number>): Omit<Sco
     : { label: flawLabel(flawEntry[0], flawEntry[1]), value: flawEntry[1] };
 
   const sub: Scores["sub"] =
-    overall < 4.5 ? "SUB1" : overall < 5.5 ? "SUB2" : overall < 7.0 ? "SUB3" : overall < 8.5 ? "SUB4" : "SUB5";
+    overall < 4.0 ? "SUB1" : overall < 6.0 ? "SUB2" : overall < 7.5 ? "SUB3" : overall < 9.0 ? "SUB4" : "SUB5";
+  // 5-tier system from Omoggle article
   const tier: Scores["tier"] =
-    overall < 5.5 ? { code: "LTN", starColor: "#9ca3af" }
-    : overall < 7.0 ? { code: "MTN", starColor: "#fbbf24" }
-    : { code: "HTN", starColor: "#22d3ee" };
+    overall >= 9.0 ? { code: "MOG", starColor: "#22d3ee" }
+    : overall >= 7.5 ? { code: "CHS", starColor: "#f43f5e" }
+    : overall >= 6.0 ? { code: "HTN", starColor: "#fbbf24" }
+    : overall >= 4.0 ? { code: "NRM", starColor: "#d1d5db" }
+    :                  { code: "BCK", starColor: "#6b7280" };
 
   return {
     dom, flaw,
@@ -244,9 +257,24 @@ function computeTraits(lm: LM[], luma?: number): Record<TraitKey, number> {
   };
 }
 
+// Weights per Omoggle article: harmony & symmetry carry more; skin is lighting-sensitive
+const TRAIT_WEIGHTS: Record<TraitKey, number> = {
+  harmony:     0.27,
+  symmetry:    0.25,
+  canthalTilt: 0.18,
+  jawline:     0.17,
+  skin:        0.08,
+  goldenRatio: 0.05,
+};
+
 export function traitMean(traits: Record<TraitKey, number>): number {
-  const vals = Object.values(traits);
-  return vals.reduce((a, b) => a + b, 0) / vals.length;
+  let sum = 0, totalW = 0;
+  for (const [key, val] of Object.entries(traits) as [TraitKey, number][]) {
+    const w = TRAIT_WEIGHTS[key] ?? (1 / 6);
+    sum += val * w;
+    totalW += w;
+  }
+  return sum / totalW;
 }
 
 // rawMean 6.0 → ~7.6, rawMean 7.0 → ~8.8

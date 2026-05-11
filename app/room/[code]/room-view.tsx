@@ -12,8 +12,9 @@ import { useWebRTCGroup } from "../../scan/use-webrtc-group";
 type RoomData = NonNullable<ReturnType<typeof useQuery<typeof api.rooms.getByCode>>>;
 type Player   = RoomData["players"][number];
 
-type TMatch  = { a: string | null; b: string | null; winner: string | null; aScore: number | null; bScore: number | null };
-type Bracket = { players: string[]; rounds: TMatch[][]; currentRound: number; champion: string | null };
+type TMatch   = { a: string | null; b: string | null; winner: string | null; aScore: number | null; bScore: number | null };
+type Standings = Record<string, { wins: number; losses: number; totalScore: number }>;
+type Bracket  = { players: string[]; rounds: TMatch[][]; currentRound: number; champion: string | null; format?: string; standings?: Standings };
 
 function useSessionId() {
   const [id, setId] = useState("");
@@ -47,6 +48,7 @@ function opponentData(players: Player[], sessionId: string | null): OpponentData
     tierCode: p.tierCode, tierColor: p.tierColor, level: p.level,
     domLabel: p.domLabel, flawLabel: p.flawLabel,
     wins: p.wins ?? 0, losses: p.losses ?? 0,
+    liveScore: p.liveScore,
   };
 }
 
@@ -96,7 +98,7 @@ function NamePrompt({ code, onDone }: { code: string; onDone: (n: string) => voi
 // ═══════════════════════════════════════════════════════════════════════════════
 
 function BattleView({ room, sessionId, name, onStartScan }: {
-  room: RoomData; sessionId: string; name: string; onStartScan: () => void;
+  room: RoomData; sessionId: string; name: string; onStartScan: (oppId: string | null) => void;
 }) {
   const router          = useRouter();
   const settleMutation  = useMutation(api.rooms.settleBattle);
@@ -125,6 +127,16 @@ function BattleView({ room, sessionId, name, onStartScan }: {
       void settleMutation({ roomId: room._id as Id<"rooms"> }).finally(() => { settleCalled.current = false; });
     }
   }, [room, fA, fB, settleMutation]);
+
+  // Auto-navigate to scan view when opponent starts scanning (so neither party needs to press a button)
+  useEffect(() => {
+    if (settled || !iAmFighter) return;
+    const myPhase  = iAmFA ? fA?.phase : fB?.phase;
+    const oppPhase = iAmFA ? fB?.phase : fA?.phase;
+    if (oppPhase === "scanning" && myPhase === "lobby") {
+      onStartScan(iAmFA ? (room.fighterB ?? null) : (room.fighterA ?? null));
+    }
+  }, [fA?.phase, fB?.phase, settled, iAmFighter, iAmFA, onStartScan, room.fighterA, room.fighterB]);
 
   const FighterCard = ({ player, isMe, isWin, isLose }: { player: Player | null; isMe: boolean; isWin: boolean; isLose: boolean }) => {
     if (!player) return (
@@ -166,7 +178,7 @@ function BattleView({ room, sessionId, name, onStartScan }: {
           <div className="flex flex-col items-center gap-2 mt-1">
             <span className="font-mono text-[8px] tracking-widest uppercase text-white/25">Ready</span>
             {isMe && !settled && (
-              <button onClick={onStartScan}
+              <button onClick={() => onStartScan(iAmFA ? (room.fighterB ?? null) : (room.fighterA ?? null))}
                 className="rounded-full bg-cyan-500/20 hover:bg-cyan-500/35 ring-1 ring-cyan-400/40
                   px-4 py-2 font-mono text-[9px] tracking-[0.22em] uppercase text-cyan-300 transition-all">
                 Start Scan
@@ -266,18 +278,23 @@ function BattleView({ room, sessionId, name, onStartScan }: {
 // ═══════════════════════════════════════════════════════════════════════════════
 
 function MatchCard({
-  match, players, sessionId, round, onScan,
+  match, players, sessionId, round, onReady,
 }: {
-  match: TMatch; players: Player[]; sessionId: string; round: number; onScan: () => void;
+  match: TMatch; players: Player[]; sessionId: string; round: number; onReady: () => void;
 }) {
-  const aName    = playerName(players, match.a);
-  const bName    = playerName(players, match.b ?? null);
   const aPlayer  = players.find(p => p.sessionId === match.a);
   const bPlayer  = players.find(p => p.sessionId === match.b);
   const isMe     = match.a === sessionId || match.b === sessionId;
   const settled  = match.winner !== null;
   const isBye    = match.b === null;
   const isNullNull = !match.a && !match.b;
+
+  // Synchronized ready-check: both must mark scanning before scan opens
+  const amA = match.a === sessionId;
+  const myPhase  = amA ? aPlayer?.phase : bPlayer?.phase;
+  const oppPhase = amA ? bPlayer?.phase : aPlayer?.phase;
+  const iAmReady  = myPhase === "scanning";
+  const oppReady  = oppPhase === "scanning";
 
   if (isNullNull) return null; // skip phantom matches
 
@@ -306,10 +323,19 @@ function MatchCard({
             {score.toFixed(1)}
           </span>
         ) : isScanning ? (
-          <div className="flex items-center gap-1">
-            <span className="w-1 h-1 rounded-full bg-cyan-400 animate-ping" />
-            <span className="font-mono text-[7px] text-cyan-400 uppercase">scanning</span>
-          </div>
+          pl?.liveScore !== undefined ? (
+            <div className="flex flex-col items-center gap-0">
+              <span className="font-sans font-bold text-[18px] tabular-nums leading-none text-cyan-300">
+                {pl.liveScore.toFixed(1)}
+              </span>
+              <span className="font-mono text-[5.5px] text-cyan-400/70 uppercase tracking-widest">live</span>
+            </div>
+          ) : (
+            <div className="flex items-center gap-1">
+              <span className="w-1 h-1 rounded-full bg-cyan-400 animate-ping" />
+              <span className="font-mono text-[7px] text-cyan-400 uppercase">scanning</span>
+            </div>
+          )
         ) : isDone ? (
           <span className="font-sans font-bold text-[14px] text-white/60">{pl?.overall?.toFixed(1)}</span>
         ) : (
@@ -340,13 +366,22 @@ function MatchCard({
         )}
       </div>
       {isMe && !settled && !isBye && (
-        <button
-          onClick={onScan}
-          className="w-full rounded-full bg-cyan-500/20 hover:bg-cyan-500/35 active:scale-[0.97]
-            ring-1 ring-cyan-400/40 py-2.5 font-mono text-[9px] tracking-[0.22em]
-            uppercase text-cyan-300 transition-all">
-          Start Scan
-        </button>
+        iAmReady ? (
+          <div className="flex items-center gap-1.5 justify-center py-2.5">
+            <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-ping shrink-0" />
+            <span className="font-mono text-[8px] tracking-widest uppercase text-cyan-400">
+              {oppReady ? "Both ready — starting…" : "Waiting for opponent…"}
+            </span>
+          </div>
+        ) : (
+          <button
+            onClick={onReady}
+            className="w-full rounded-full bg-cyan-500/20 hover:bg-cyan-500/35 active:scale-[0.97]
+              ring-1 ring-cyan-400/40 py-2.5 font-mono text-[9px] tracking-[0.22em]
+              uppercase text-cyan-300 transition-all">
+            I'm Ready
+          </button>
+        )
       )}
     </div>
   );
@@ -362,6 +397,7 @@ function TournamentView({ room, sessionId, name, onStartScan }: {
   const advanceMutation     = useMutation(api.rooms.advanceTournamentBracket);
   const setPhaseMutation    = useMutation(api.players.setPhase);
   const advanceCalled       = useRef(false);
+  const hasNavigatedRef     = useRef(false);
 
   const players  = room.players;
   const isHost   = room.hostSessionId === sessionId;
@@ -372,12 +408,13 @@ function TournamentView({ room, sessionId, name, onStartScan }: {
   useEffect(() => {
     if (!bracket || status !== "running") return;
     const currentRound = bracket.rounds[bracket.currentRound];
-    const realMatches  = currentRound.filter(m => m.a && m.b);
-    const anyResolvable = realMatches.some(m => {
+    const anyResolvable = currentRound.some(m => {
       if (m.winner !== null) return false;
+      if (!m.a && !m.b) return false;
+      if (!m.b || !m.a) return true; // bye — always resolvable
       const pA = players.find(p => p.sessionId === m.a);
       const pB = players.find(p => p.sessionId === m.b);
-      return pA?.phase === "done" && pB?.phase === "done";
+      return !!(pA?.phase === "done" && pB?.phase === "done");
     });
     if (anyResolvable && !advanceCalled.current) {
       advanceCalled.current = true;
@@ -394,9 +431,30 @@ function TournamentView({ room, sessionId, name, onStartScan }: {
     ? (myMatch.a === sessionId ? myMatch.b : myMatch.a)
     : null;
 
-  const handleScan = () => {
+  // Reset navigation lock when round advances
+  const currentRoundIdx = bracket?.currentRound ?? -1;
+  const prevRoundRef = useRef(currentRoundIdx);
+  useEffect(() => {
+    if (currentRoundIdx !== prevRoundRef.current) {
+      prevRoundRef.current = currentRoundIdx;
+      hasNavigatedRef.current = false;
+    }
+  }, [currentRoundIdx]);
+
+  // Auto-navigate when BOTH players in my match have clicked Ready (phase === "scanning")
+  useEffect(() => {
+    if (!myMatch || hasNavigatedRef.current) return;
+    const aPlayer = players.find(p => p.sessionId === myMatch.a);
+    const bPlayer = players.find(p => p.sessionId === myMatch.b);
+    if (aPlayer?.phase === "scanning" && bPlayer?.phase === "scanning") {
+      hasNavigatedRef.current = true;
+      onStartScan(myOpponentId);
+    }
+  }, [players, myMatch, myOpponentId, onStartScan]);
+
+  // "Ready" — only marks phase; auto-navigate effect handles actual navigation
+  const handleReady = () => {
     void setPhaseMutation({ roomId: room._id as Id<"rooms">, sessionId, phase: "scanning" });
-    onStartScan(myOpponentId);
   };
 
   // ── Lobby ──────────────────────────────────────────────────────────────────
@@ -468,12 +526,20 @@ function TournamentView({ room, sessionId, name, onStartScan }: {
   // ── Complete ───────────────────────────────────────────────────────────────
   if (status === "complete" && bracket) {
     const champion = players.find(p => p.sessionId === bracket.champion);
+    const isRR = bracket.format === "roundrobin";
+    const finalStandings = isRR && bracket.standings
+      ? Object.entries(bracket.standings)
+          .sort(([, a], [, b]) => b.wins - a.wins || b.totalScore - a.totalScore)
+      : [];
+
     return (
       <div className="flex flex-col bg-black min-h-[100dvh] overflow-hidden">
         <div className="flex items-center justify-between px-4 pt-safe pt-5 pb-3 shrink-0">
           <button onClick={() => router.push("/")} className="font-mono text-[8px] tracking-[0.25em] uppercase text-white/28 hover:text-white/55 p-1">← Exit</button>
           <div className="flex flex-col items-center">
-            <span className="font-mono text-[7px] tracking-[0.35em] uppercase text-white/25">Tournament · Final</span>
+            <span className="font-mono text-[7px] tracking-[0.35em] uppercase text-white/25">
+              {isRR ? "Round-Robin" : "Tournament"} · Complete
+            </span>
             <CopyCodeRow code={room.code} />
           </div>
           <div className="w-10" />
@@ -486,25 +552,63 @@ function TournamentView({ room, sessionId, name, onStartScan }: {
             <p className="font-sans font-black text-[32px] tracking-[0.12em] uppercase text-amber-400">
               {champion?.name ?? "—"}
             </p>
-            {champion?.overall && (
-              <p className="font-sans font-bold text-[22px] text-white/70 tabular-nums">
-                {champion.overall.toFixed(1)} PSL
+            {isRR && bracket.standings?.[bracket.champion ?? ""] && (
+              <p className="font-mono text-[9px] tracking-[0.2em] text-amber-300/70">
+                {bracket.standings[bracket.champion!].wins}W · {bracket.standings[bracket.champion!].losses}L
               </p>
             )}
           </div>
 
-          {/* Bracket summary */}
+          {/* Round-robin final standings */}
+          {isRR && finalStandings.length > 0 && (
+            <div className="w-full flex flex-col gap-1.5">
+              <p className="font-mono text-[7px] tracking-[0.35em] uppercase text-white/30 px-1">Final Standings</p>
+              {finalStandings.map(([sid, s], i) => {
+                const pl = players.find(p => p.sessionId === sid);
+                const avgScore = s.wins + s.losses > 0 ? (s.totalScore / (s.wins + s.losses)) : null;
+                const medals = ["🥇","🥈","🥉"];
+                return (
+                  <div key={sid} className={`flex items-center gap-3 px-3 py-3 rounded-2xl ring-1
+                    ${i === 0 ? "bg-amber-400/10 ring-amber-400/30"
+                      : sid === sessionId ? "bg-cyan-500/8 ring-cyan-400/20"
+                      : "bg-white/[0.025] ring-white/8"}`}>
+                    <span className="text-base w-5 text-center shrink-0">{medals[i] ?? `#${i+1}`}</span>
+                    <div className="w-8 h-8 rounded-full bg-white/10 ring-1 ring-white/20
+                      flex items-center justify-center font-mono text-[11px] font-bold text-white shrink-0">
+                      {pl?.name.charAt(0) ?? "?"}
+                    </div>
+                    <span className={`font-sans font-semibold text-[12px] tracking-[0.08em] uppercase flex-1 truncate
+                      ${i === 0 ? "text-amber-400" : sid === sessionId ? "text-cyan-300" : "text-white/70"}`}>
+                      {pl?.name ?? "—"}
+                    </span>
+                    <div className="flex items-center gap-2 shrink-0 font-mono text-[8px]">
+                      <span className="text-emerald-400">{s.wins}W</span>
+                      <span className="text-white/20">·</span>
+                      <span className="text-rose-400/70">{s.losses}L</span>
+                      {avgScore !== null && (
+                        <>
+                          <span className="text-white/20">·</span>
+                          <span className="text-white/50">{avgScore.toFixed(1)}</span>
+                        </>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
+          {/* Match history (rounds) */}
           <div className="w-full flex flex-col gap-3">
             {bracket.rounds.map((round, ri) => {
-              const realMatches = round.filter(m => m.a || m.b);
+              const realMatches = round.filter(m => m.a && m.b);
               if (realMatches.length === 0) return null;
               return (
                 <div key={ri} className="flex flex-col gap-2">
                   <p className="font-mono text-[7px] tracking-[0.35em] uppercase text-white/30 px-1">
-                    Round {ri + 1}{ri === bracket.rounds.length - 1 ? " · Final" : ""}
+                    Round {ri + 1}
                   </p>
                   {realMatches.map((m, mi) => {
-                    if (!m.a && !m.b) return null;
                     const aP = players.find(p => p.sessionId === m.a);
                     const bP = players.find(p => p.sessionId === m.b);
                     return (
@@ -541,26 +645,49 @@ function TournamentView({ room, sessionId, name, onStartScan }: {
 
   // ── Running ────────────────────────────────────────────────────────────────
   if (!bracket) return null;
-  const currentRound = bracket.rounds[bracket.currentRound];
+  const isRoundRobin   = bracket.format === "roundrobin";
+  const currentRound   = bracket.rounds[bracket.currentRound];
   const visibleMatches = currentRound.filter(m => m.a || m.b);
-  const roundLabel = bracket.currentRound === bracket.rounds.length - 1
-    ? "Final"
-    : bracket.currentRound === bracket.rounds.length - 2
-    ? "Semi-Finals"
-    : `Round ${bracket.currentRound + 1} of ${bracket.rounds.length}`;
+  const roundLabel     = `Round ${bracket.currentRound + 1} of ${bracket.rounds.length}`;
+
+  // For round-robin, check if I have a bye this round
+  const myByeMatch = isRoundRobin
+    ? currentRound.find(m => (m.a === sessionId && m.b === null) || (m.b === sessionId && m.a === null))
+    : null;
+
+  // Standings sorted for display
+  const standingsSorted = isRoundRobin && bracket.standings
+    ? Object.entries(bracket.standings)
+        .sort(([, a], [, b]) => b.wins - a.wins || b.totalScore - a.totalScore)
+    : [];
 
   return (
     <div className="flex flex-col bg-black min-h-[100dvh] overflow-hidden">
       <div className="flex items-center justify-between px-4 pt-safe pt-5 pb-3 shrink-0">
         <button onClick={() => router.push("/")} className="font-mono text-[8px] tracking-[0.25em] uppercase text-white/28 hover:text-white/55 p-1">← Exit</button>
         <div className="flex flex-col items-center">
-          <span className="font-mono text-[7px] tracking-[0.35em] uppercase text-white/25">Tournament · {roundLabel}</span>
+          <span className="font-mono text-[7px] tracking-[0.35em] uppercase text-white/25">
+            {isRoundRobin ? "Round-Robin" : "Tournament"} · {roundLabel}
+          </span>
           <CopyCodeRow code={room.code} />
         </div>
         <div className="w-10" />
       </div>
 
       <div className="flex-1 flex flex-col px-4 pb-6 gap-3 overflow-y-auto">
+        {/* Bye notice for round-robin */}
+        {myByeMatch && (
+          <div className="flex flex-col items-center gap-1.5 py-4 px-4 rounded-2xl bg-white/[0.03] ring-1 ring-white/10">
+            <span className="text-2xl">😴</span>
+            <p className="font-mono text-[8px] tracking-[0.25em] uppercase text-white/50 text-center">
+              Bye this round — spectating
+            </p>
+            <p className="font-mono text-[7px] tracking-widest text-white/25 text-center">
+              Watch the other matches below
+            </p>
+          </div>
+        )}
+
         {/* My match prominent at top */}
         {myMatch && (
           <div className="flex flex-col gap-1.5">
@@ -570,16 +697,16 @@ function TournamentView({ room, sessionId, name, onStartScan }: {
               players={players}
               sessionId={sessionId}
               round={bracket.currentRound}
-              onScan={handleScan}
+              onReady={handleReady}
             />
           </div>
         )}
 
         {/* Other matches */}
-        {visibleMatches.some(m => m !== myMatch && (m.a || m.b)) && (
+        {visibleMatches.some(m => m !== myMatch && !myByeMatch?.a && (m.a || m.b)) || visibleMatches.filter(m => m !== myMatch && (m.a || m.b)).length > 0 ? (
           <div className="flex flex-col gap-1.5">
             <p className="font-mono text-[7px] tracking-[0.35em] uppercase text-white/25 px-1">
-              {roundLabel} · {visibleMatches.filter(m => m.a && m.b).length} matches
+              {myByeMatch ? "Live Matches" : `${roundLabel} · ${visibleMatches.filter(m => m.a && m.b).length} matches`}
             </p>
             {visibleMatches.map((m, i) => {
               if (m === myMatch) return null;
@@ -591,21 +718,57 @@ function TournamentView({ room, sessionId, name, onStartScan }: {
                   players={players}
                   sessionId={sessionId}
                   round={bracket.currentRound}
-                  onScan={handleScan}
+                  onReady={handleReady}
                 />
               );
             })}
           </div>
-        )}
+        ) : null}
 
-        {/* No active match notice */}
-        {!myMatch && (
+        {/* No active match notice (non-round-robin or edge case) */}
+        {!myMatch && !myByeMatch && (
           <div className="flex flex-col items-center gap-2 py-8 text-center">
             <p className="font-mono text-[8px] tracking-[0.25em] uppercase text-white/35">
               {players.find(p => p.sessionId === sessionId)?.phase === "done"
                 ? "Scan complete — waiting for round to finish"
-                : "You are not in this round"}
+                : "Waiting…"}
             </p>
+          </div>
+        )}
+
+        {/* Standings table for round-robin */}
+        {isRoundRobin && standingsSorted.length > 0 && bracket.currentRound > 0 && (
+          <div className="flex flex-col gap-1.5 pt-1">
+            <p className="font-mono text-[7px] tracking-[0.35em] uppercase text-white/25 px-1">Standings</p>
+            {standingsSorted.map(([sid, s], i) => {
+              const pl = players.find(p => p.sessionId === sid);
+              const avgScore = s.wins + s.losses > 0 ? (s.totalScore / (s.wins + s.losses)) : null;
+              return (
+                <div key={sid} className={`flex items-center gap-3 px-3 py-2.5 rounded-xl ring-1
+                  ${sid === sessionId ? "bg-cyan-500/8 ring-cyan-400/20" : "bg-white/[0.025] ring-white/8"}`}>
+                  <span className="font-mono text-[8px] text-white/30 w-4 shrink-0">{i + 1}</span>
+                  <div className="w-7 h-7 rounded-full bg-white/10 ring-1 ring-white/18
+                    flex items-center justify-center font-mono text-[10px] font-bold text-white shrink-0">
+                    {pl?.name.charAt(0) ?? "?"}
+                  </div>
+                  <span className={`font-sans font-semibold text-[11px] tracking-[0.08em] uppercase flex-1 truncate
+                    ${sid === sessionId ? "text-cyan-300" : "text-white/70"}`}>
+                    {pl?.name ?? sid.slice(0, 6)}
+                  </span>
+                  <div className="flex items-center gap-2 shrink-0">
+                    <span className="font-mono text-[8px] text-emerald-400">{s.wins}W</span>
+                    <span className="font-mono text-[8px] text-white/20">·</span>
+                    <span className="font-mono text-[8px] text-rose-400/70">{s.losses}L</span>
+                    {avgScore !== null && (
+                      <>
+                        <span className="font-mono text-[8px] text-white/20">·</span>
+                        <span className="font-mono text-[8px] text-white/50">{avgScore.toFixed(1)}</span>
+                      </>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
           </div>
         )}
       </div>
@@ -628,7 +791,7 @@ function RemoteVideo({ stream, snapshot, name }: {
 
   if (stream) {
     return (
-      <video ref={ref} autoPlay playsInline muted
+      <video ref={ref} autoPlay playsInline
         className="absolute inset-0 w-full h-full"
         style={{ objectFit: "cover", objectPosition: "center 20%" }} />
     );
@@ -663,21 +826,28 @@ function GroupScanView({ room, sessionId }: {
     status, phase, scores, error,
     videoRef, canvasRef, streamRef,
     retry, startScan, resetScan,
-    scanProgress, samplesCollected,
+    scanProgress, samplesCollected, samplesSkipped,
+    rawScores, aiRating,
   } = useFaceLandmarker();
 
   const submitScore      = useMutation(api.players.submitScore);
+  const saveScanData     = useMutation(api.players.saveFaceScanData);
   const setSnapshotMut   = useMutation(api.players.setSnapshot);
   const startGroupMut    = useMutation(api.rooms.scheduleGroupScan);
   const resetGroup       = useMutation(api.rooms.resetGroupScan);
   const setPhaseMutation = useMutation(api.players.setPhase);
-  const submittedRef     = useRef(false);
+  const setLiveScore     = useMutation(api.players.setLiveScore);
+  const submittedRef       = useRef(false);
+  const prevGroupStarted   = useRef<boolean | undefined>(undefined);
 
   const [scanStartsAt, setScanStartsAt] = useState<number | null>(null);
   const [countdown, setCountdown]       = useState<number | null>(null);
 
   const players  = room.players;
-  const otherSessionIds = players.filter(p => p.sessionId !== sessionId).map(p => p.sessionId);
+  // Only start WebRTC connections once camera is ready (stream must exist to add tracks)
+  const otherSessionIds = status === "ready"
+    ? players.filter(p => p.sessionId !== sessionId).map(p => p.sessionId)
+    : [];
   const remoteStreams = useWebRTCGroup(room._id as Id<"rooms">, sessionId, otherSessionIds, streamRef);
   const isHost   = room.hostSessionId === sessionId;
   const started  = !!room.groupStarted;
@@ -694,6 +864,16 @@ function GroupScanView({ room, sessionId }: {
       setScanStartsAt(null);
     }
   }, [room.groupScanStartAt]);
+
+  // Detect group scan reset for ALL players (not just host) — reset local scan state
+  useEffect(() => {
+    const curr = !!room.groupStarted;
+    if (prevGroupStarted.current === true && !curr) {
+      submittedRef.current = false;
+      resetScan();
+    }
+    prevGroupStarted.current = curr;
+  }, [room.groupStarted, resetScan]);
 
   // Tick countdown
   useEffect(() => {
@@ -741,17 +921,51 @@ function GroupScanView({ room, sessionId }: {
     }
   }, [phase, room._id, sessionId, setPhaseMutation]);
 
+  // Push live score to Convex every 2 s during scanning
+  const liveScoresRef = useRef<typeof scores>(null);
+  liveScoresRef.current = scores;
+  useEffect(() => {
+    if (phase !== "scanning") return;
+    const iv = setInterval(() => {
+      if (liveScoresRef.current) {
+        void setLiveScore({ roomId: room._id as Id<"rooms">, sessionId, liveScore: liveScoresRef.current.overall });
+      }
+    }, 2000);
+    return () => clearInterval(iv);
+  }, [phase, room._id, sessionId, setLiveScore]);
+
   // Auto-submit when scan completes
   useEffect(() => {
     if (phase !== "complete" || !scores || submittedRef.current) return;
     submittedRef.current = true;
+    const rid = room._id as Id<"rooms">;
     void submitScore({
-      roomId: room._id as Id<"rooms">, sessionId,
+      roomId: rid, sessionId,
       overall: scores.overall, elo: scores.elo, sub: scores.sub,
       tierCode: scores.tier.code, tierColor: scores.tier.starColor,
       level: scores.level, domLabel: scores.dom.label, flawLabel: scores.flaw.label,
     });
-  }, [phase, scores, room._id, sessionId, submitScore]);
+    // Fire-and-forget: save detailed face data for model improvement
+    void saveScanData({
+      roomId: rid, sessionId,
+      capturedAt: Date.now(),
+      rawTraitsJson:    rawScores ? JSON.stringify(rawScores.traits) : undefined,
+      rawOverall:       rawScores?.overall,
+      aiTraitsJson:     aiRating ? JSON.stringify(aiRating.traits) : undefined,
+      aiOverall:        aiRating ? Object.values(aiRating.traits).reduce((s, v) => s + v, 0) / 6 : undefined,
+      aiDomLabel:       aiRating?.dom.label,
+      aiFlawLabel:      aiRating?.flaw.label,
+      finalOverall:     scores.overall,
+      finalElo:         scores.elo,
+      finalSub:         scores.sub,
+      finalTierCode:    scores.tier.code,
+      finalLevel:       scores.level,
+      finalDomLabel:    scores.dom.label,
+      finalFlawLabel:   scores.flaw.label,
+      samplesCollected,
+      samplesSkipped,
+    }).catch(() => {});
+  }, [phase, scores, rawScores, aiRating, room._id, sessionId, submitScore, saveScanData, samplesCollected, samplesSkipped]);
 
   const rankMedal = (i: number) => ["🥇","🥈","🥉"][i] ?? `#${i + 1}`;
 
@@ -851,7 +1065,7 @@ function GroupScanView({ room, sessionId }: {
               {/* ── Dark gradient at bottom ── */}
               <div className="absolute inset-x-0 bottom-0 h-2/3 bg-gradient-to-t from-black/90 via-black/30 to-transparent pointer-events-none" />
 
-              {/* ── Score card: live during own scan, locked when done ── */}
+              {/* ── Score card: live during own scan, live for others during scanning, locked when done ── */}
               {isMe && scores && (phase === "scanning" || phase === "analyzing") ? (
                 <div className="absolute bottom-0 inset-x-0 p-3">
                   <div className="flex items-end gap-2">
@@ -865,6 +1079,17 @@ function GroupScanView({ room, sessionId }: {
                   </div>
                   <p className="font-mono text-[8px] text-emerald-300 truncate leading-tight">{scores.dom.label}</p>
                   <p className="font-mono text-[7px] text-rose-300/70 truncate">{scores.flaw.label}</p>
+                </div>
+              ) : !isMe && isScanning && p.liveScore !== undefined ? (
+                <div className="absolute bottom-0 inset-x-0 p-3">
+                  <div className="flex items-end gap-2">
+                    <span className="font-sans font-black text-[36px] tabular-nums leading-none text-white/80 drop-shadow-lg">
+                      {p.liveScore.toFixed(1)}
+                    </span>
+                    <span className="mb-1.5 font-mono text-[8px] font-bold tracking-widest uppercase leading-none text-cyan-400/70">
+                      LIVE
+                    </span>
+                  </div>
                 </div>
               ) : isDone && myScore !== undefined ? (
                 <div className="absolute bottom-0 inset-x-0 p-3">
@@ -963,12 +1188,12 @@ function GroupScanView({ room, sessionId }: {
         </div>
       )}
 
-      {/* ── Rankings (slide up when all done) ── */}
-      {allDone && ranked.length > 0 && (
+      {/* ── Rankings (show as players finish, final when all done) ── */}
+      {ranked.length > 0 && (
         <div className="absolute inset-x-0 bottom-0 z-20 bg-gradient-to-t from-black via-black/98 to-transparent pt-24 pb-safe pb-6 px-4">
           <div className="flex flex-col gap-2 max-w-sm mx-auto">
             <p className="font-mono text-[7px] tracking-[0.45em] uppercase text-amber-400/55 text-center mb-0.5">
-              ✦ Final Rankings
+              {allDone ? "✦ Final Rankings" : `✦ Live Rankings · ${players.length - ranked.length} remaining`}
             </p>
             {ranked.map((p, i) => (
               <div key={p._id} className={`flex items-center gap-3 px-3.5 py-3 rounded-2xl ring-1
@@ -999,11 +1224,7 @@ function GroupScanView({ room, sessionId }: {
             ))}
             {isHost && (
               <button
-                onClick={() => {
-                  submittedRef.current = false;
-                  resetScan();
-                  void resetGroup({ roomId: room._id as Id<"rooms"> });
-                }}
+                onClick={() => void resetGroup({ roomId: room._id as Id<"rooms"> })}
                 className="mt-2 w-full rounded-full bg-white/8 hover:bg-white/14 ring-1 ring-white/12
                   py-3.5 font-mono text-[10px] tracking-[0.25em] uppercase text-white/80 transition-all">
                 Scan Again
@@ -1027,9 +1248,9 @@ export function RoomView({ code }: { code: string }) {
   const [opponentId, setOpponentId] = useState<string | null>(null);
   const joinCalled          = useRef(false);
 
-  const room           = useQuery(api.rooms.getByCode, { code });
-  const joinMutation   = useMutation(api.rooms.join);
-  const setPhaseMutation = useMutation(api.players.setPhase);
+  const room              = useQuery(api.rooms.getByCode, { code });
+  const joinMutation      = useMutation(api.rooms.join);
+  const setPhaseMutation  = useMutation(api.players.setPhase);
 
   useEffect(() => {
     if (!sessionId || !name || joinCalled.current) return;
@@ -1067,6 +1288,7 @@ export function RoomView({ code }: { code: string }) {
         sessionId={sessionId}
         playerName={name}
         opponent={oppData}
+        opponentSessionId={opponentId}
         onDone={() => {
           setScanning(false);
           setOpponentId(null);
@@ -1084,6 +1306,7 @@ export function RoomView({ code }: { code: string }) {
         sessionId={sessionId}
         name={name}
         onStartScan={(oppId) => {
+          // Phase is already "scanning" (set by handleReady before this fires)
           setOpponentId(oppId);
           setScanning(true);
         }}
@@ -1106,7 +1329,12 @@ export function RoomView({ code }: { code: string }) {
       room={room}
       sessionId={sessionId}
       name={name}
-      onStartScan={() => setScanning(true)}
+      onStartScan={(oppId) => {
+        // Mark as scanning in Convex immediately so opponent auto-navigates to scan view
+        void setPhaseMutation({ roomId: room._id as Id<"rooms">, sessionId, phase: "scanning" });
+        setOpponentId(oppId);
+        setScanning(true);
+      }}
     />
   );
 }

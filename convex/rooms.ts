@@ -1,12 +1,49 @@
 import { mutation, query } from "./_generated/server";
 import { v } from "convex/values";
 
-type TMatch = { a: string | null; b: string | null; winner: string | null; aScore: number | null; bScore: number | null };
-type Bracket = { players: string[]; rounds: TMatch[][]; currentRound: number; champion: string | null };
+type TMatch  = { a: string | null; b: string | null; winner: string | null; aScore: number | null; bScore: number | null };
+type Standings = Record<string, { wins: number; losses: number; totalScore: number }>;
+type Bracket = {
+  players: string[];
+  rounds: TMatch[][];
+  currentRound: number;
+  champion: string | null;
+  format?: string;
+  standings?: Standings;
+};
 
 function genCode(): string {
   const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
   return Array.from({ length: 6 }, () => chars[Math.floor(Math.random() * chars.length)]).join("");
+}
+
+function buildRoundRobin(playerIds: string[]): Bracket {
+  const shuffled = [...playerIds].sort(() => Math.random() - 0.5);
+  const N = shuffled.length;
+  const slots: (string | null)[] = [...shuffled];
+  if (N % 2 !== 0) slots.push(null); // BYE slot for odd player count
+  const P = slots.length;
+  const numRounds = P - 1;
+
+  // Circle algorithm: fix slots[0], rotate the rest
+  const rounds: TMatch[][] = [];
+  for (let r = 0; r < numRounds; r++) {
+    const arranged: (string | null)[] = new Array(P);
+    arranged[0] = slots[0];
+    for (let i = 1; i < P; i++) {
+      arranged[i] = slots[((i - 1 + r) % (P - 1)) + 1];
+    }
+    const matches: TMatch[] = [];
+    for (let i = 0; i < P / 2; i++) {
+      matches.push({ a: arranged[i], b: arranged[P - 1 - i], winner: null, aScore: null, bScore: null });
+    }
+    rounds.push(matches);
+  }
+
+  const standings: Standings = {};
+  for (const p of shuffled) standings[p] = { wins: 0, losses: 0, totalScore: 0 };
+
+  return { players: shuffled, rounds, currentRound: 0, champion: null, format: "roundrobin", standings };
 }
 
 function buildBracket(playerIds: string[]): Bracket {
@@ -167,7 +204,7 @@ export const rematch = mutation({
         phase: "lobby",
         overall: undefined, elo: undefined, sub: undefined,
         tierCode: undefined, tierColor: undefined, level: undefined,
-        domLabel: undefined, flawLabel: undefined,
+        domLabel: undefined, flawLabel: undefined, liveScore: undefined,
       });
     }
     await ctx.db.patch(roomId, { battleSettled: false });
@@ -218,7 +255,7 @@ export const startTournament = mutation({
     if (N < 2) return;
 
     const slots = players.slice(0, N).map(p => p.sessionId);
-    const bracket = buildBracket(slots);
+    const bracket = buildRoundRobin(slots);
 
     await ctx.db.patch(roomId, {
       tournamentBracket: JSON.stringify(bracket),
@@ -240,45 +277,92 @@ export const advanceTournamentBracket = mutation({
       .collect();
 
     const currentMatches = bracket.rounds[bracket.currentRound];
+    const isRoundRobin = bracket.format === "roundrobin";
 
-    // Resolve any unsettled matches
     let changed = false;
     for (const match of currentMatches) {
       if (match.winner !== null) continue;
+      if (!match.a && !match.b) continue;
       if (match.b === null) {
-        // Bye: a auto-wins
-        const pA = players.find(p => p.sessionId === match.a);
-        match.winner = match.a;
-        match.aScore = pA?.overall ?? null;
+        // Bye: auto-advance a (no win/loss credited)
+        match.winner = match.a ?? "__bye__";
+        match.aScore = null;
         changed = true;
-      } else {
-        const pA = players.find(p => p.sessionId === match.a);
-        const pB = players.find(p => p.sessionId === match.b);
-        if (pA?.phase === "done" && pB?.phase === "done") {
-          match.aScore = pA.overall ?? 0;
-          match.bScore = pB.overall ?? 0;
-          match.winner = match.aScore >= match.bScore ? match.a : match.b;
-          const winnerDoc = match.winner === match.a ? pA : pB;
-          const loserDoc  = match.winner === match.a ? pB : pA;
-          await ctx.db.patch(winnerDoc._id, { wins: (winnerDoc.wins ?? 0) + 1 });
-          await ctx.db.patch(loserDoc._id,  { losses: (loserDoc.losses ?? 0) + 1 });
-          changed = true;
+        continue;
+      }
+      if (match.a === null) {
+        match.winner = match.b ?? "__bye__";
+        match.bScore = null;
+        changed = true;
+        continue;
+      }
+      const pA = players.find(p => p.sessionId === match.a);
+      const pB = players.find(p => p.sessionId === match.b);
+      if (pA?.phase === "done" && pB?.phase === "done") {
+        match.aScore = pA.overall ?? 0;
+        match.bScore = pB.overall ?? 0;
+        match.winner = match.aScore >= match.bScore ? match.a : match.b;
+        const winnerDoc = match.winner === match.a ? pA : pB;
+        const loserDoc  = match.winner === match.a ? pB : pA;
+        await ctx.db.patch(winnerDoc._id, { wins: (winnerDoc.wins ?? 0) + 1 });
+        await ctx.db.patch(loserDoc._id,  { losses: (loserDoc.losses ?? 0) + 1 });
+        if (isRoundRobin && bracket.standings) {
+          if (match.a in bracket.standings) bracket.standings[match.a].totalScore += match.aScore;
+          if (match.b in bracket.standings) bracket.standings[match.b].totalScore += match.bScore;
+          if (match.winner in bracket.standings) bracket.standings[match.winner].wins += 1;
+          const loserSid = match.winner === match.a ? match.b : match.a;
+          if (loserSid in bracket.standings) bracket.standings[loserSid].losses += 1;
         }
+        changed = true;
       }
     }
 
     if (!changed) return;
 
-    // Check if entire current round is settled
-    const allSettled = currentMatches.every(m => m.winner !== null);
+    const allSettled = currentMatches.every(m => m.winner !== null || (!m.a && !m.b));
     if (!allSettled) {
       await ctx.db.patch(roomId, { tournamentBracket: JSON.stringify(bracket) });
       return;
     }
 
-    const winners = currentMatches.map(m => m.winner!);
+    if (isRoundRobin) {
+      if (bracket.currentRound >= bracket.rounds.length - 1) {
+        // All rounds done — determine champion by wins, tiebreak by total score
+        let champ: string | null = null;
+        let maxWins = -1;
+        let maxScore = -1;
+        for (const [sid, s] of Object.entries(bracket.standings ?? {})) {
+          if (s.wins > maxWins || (s.wins === maxWins && s.totalScore > maxScore)) {
+            champ = sid;
+            maxWins = s.wins;
+            maxScore = s.totalScore;
+          }
+        }
+        bracket.champion = champ;
+        await ctx.db.patch(roomId, {
+          tournamentBracket: JSON.stringify(bracket),
+          tournamentStatus: "complete",
+        });
+      } else {
+        // Advance to next round — reset all tournament players
+        bracket.currentRound += 1;
+        for (const p of players) {
+          if (bracket.players.includes(p.sessionId)) {
+            await ctx.db.patch(p._id, {
+              phase: "lobby",
+              overall: undefined, elo: undefined, sub: undefined,
+              tierCode: undefined, tierColor: undefined, level: undefined,
+              domLabel: undefined, flawLabel: undefined, liveScore: undefined,
+            });
+          }
+        }
+        await ctx.db.patch(roomId, { tournamentBracket: JSON.stringify(bracket) });
+      }
+      return;
+    }
 
-    // Final round complete → set champion (last non-null winner)
+    // Legacy single-elimination path (kept for rooms created before round-robin)
+    const winners = currentMatches.map(m => m.winner!);
     if (bracket.currentRound === bracket.rounds.length - 1) {
       bracket.champion = winners.filter(Boolean).pop() ?? null;
       await ctx.db.patch(roomId, {
@@ -287,24 +371,17 @@ export const advanceTournamentBracket = mutation({
       });
       return;
     }
-
-    // Advance to next round
     bracket.currentRound += 1;
     const nextMatches = bracket.rounds[bracket.currentRound];
-
-    // Fill next round slots with this round's winners (non-null winners only)
-    const nonNullWinners = winners.filter((w): w is string => w !== null);
+    const nonNullWinners = winners.filter((w): w is string => w !== null && w !== "__bye__");
     let wi = 0;
     for (const match of nextMatches) {
       match.a = nonNullWinners[wi++] ?? null;
       match.b = nonNullWinners[wi++] ?? null;
-      // Auto-resolve byes in next round
       if (!match.a && !match.b) match.winner = null;
       else if (!match.b) match.winner = match.a;
       else if (!match.a) match.winner = match.b;
     }
-
-    // Reset players in next round matches to lobby (fresh scan)
     const nextPlayers = new Set<string>();
     for (const m of nextMatches) {
       if (m.a) nextPlayers.add(m.a);
@@ -320,7 +397,6 @@ export const advanceTournamentBracket = mutation({
         });
       }
     }
-
     await ctx.db.patch(roomId, { tournamentBracket: JSON.stringify(bracket) });
   },
 });
@@ -339,7 +415,7 @@ export const resetTournament = mutation({
         phase: "lobby",
         overall: undefined, elo: undefined, sub: undefined,
         tierCode: undefined, tierColor: undefined, level: undefined,
-        domLabel: undefined, flawLabel: undefined,
+        domLabel: undefined, flawLabel: undefined, liveScore: undefined,
       });
     }
     await ctx.db.patch(roomId, {
@@ -384,7 +460,7 @@ export const resetGroupScan = mutation({
         phase: "lobby",
         overall: undefined, elo: undefined, sub: undefined,
         tierCode: undefined, tierColor: undefined, level: undefined,
-        domLabel: undefined, flawLabel: undefined, snapshot: undefined,
+        domLabel: undefined, flawLabel: undefined, snapshot: undefined, liveScore: undefined,
       });
     }
     await ctx.db.patch(roomId, { groupStarted: false, groupComplete: false, groupScanStartAt: undefined });
