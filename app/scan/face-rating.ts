@@ -390,12 +390,12 @@ export function traitMean(traits: Record<TraitKey, number>): number {
 }
 
 export function overallFromMean(rawMean: number, candy = 0): number {
-  return clamp(rawMean * 1.2 + 0.4 + candy, 3, 10);
+  return clamp(rawMean * 1.2 - 0.1 + candy, 3, 10);
 }
 
-// Random candy boost: increased ceiling for more generous baseline (0.2–0.7)
+// Random candy boost (0.1–0.35)
 export function generateCandy(): number {
-  return 0.2 + Math.random() * 0.5;
+  return 0.1 + Math.random() * 0.25;
 }
 
 // Per-frame jitter for live variation
