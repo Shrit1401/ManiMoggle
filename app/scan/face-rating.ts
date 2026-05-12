@@ -468,6 +468,18 @@ export function aggregateMedian(samples: number[][]): Scores | null {
   return { overall, traits, ...categorize(overall, traits) };
 }
 
+// Average of every valid sample collected across the full 15s session
+export function aggregateMean(samples: number[][]): Scores | null {
+  if (samples.length === 0) return null;
+  const traits = {} as Record<TraitKey, number>;
+  TRAIT_KEYS.forEach((key, i) => {
+    const col = samples.map((s) => s[i]);
+    traits[key] = col.reduce((sum, v) => sum + v, 0) / col.length;
+  });
+  const overall = overallFromMean(traitMean(traits));
+  return { overall, traits, ...categorize(overall, traits) };
+}
+
 export function traitsToVector(traits: Record<TraitKey, number>): number[] {
   return TRAIT_KEYS.map(k => traits[k]);
 }

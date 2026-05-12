@@ -3,7 +3,7 @@
 import { useRef, useState, useEffect, useCallback } from "react";
 import type { FaceLandmarker } from "@mediapipe/tasks-vision";
 import {
-  scoreFace, smoothScores, aggregateMedian, traitsToVector,
+  scoreFace, smoothScores, aggregateMean, traitsToVector,
   buildScores, jitterTraits, generateCandy, traitMean,
   detectSmile, detectEyeOpen, computeBonuses, computeBadges,
 } from "./face-rating";
@@ -330,7 +330,7 @@ export function useFaceLandmarker() {
                   setScanProgress(1);
 
                   const fallback = samplesRef.current.length >= 3
-                    ? aggregateMedian(samplesRef.current)
+                    ? aggregateMean(samplesRef.current)
                     : smoothedRef.current;
 
                   rawScoresRef.current = fallback;
