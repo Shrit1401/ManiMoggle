@@ -1,17 +1,13 @@
 "use client";
 
 import { useRef, useState, useEffect, useCallback } from "react";
-import { useQuery } from "convex/react";
-import { api } from "../../convex/_generated/api";
 import type { FaceLandmarker } from "@mediapipe/tasks-vision";
 import {
   scoreFace, smoothScores, aggregateMedian, traitsToVector,
   buildScores, jitterTraits, generateCandy, traitMean,
-  detectEyeOpen, computeBonuses, computeBadges,
+  detectSmile, detectEyeOpen, computeBonuses, computeBadges,
 } from "./face-rating";
 import type { Scores, TraitKey, BonusEvent } from "./face-rating";
-import { rateFromImage, captureVideoFrame } from "./ai-rating";
-import type { AIRating } from "./ai-rating";
 
 export type Status = "idle" | "requesting" | "ready" | "denied" | "unsupported" | "error";
 export type Phase  = "live" | "scanning" | "analyzing" | "complete";
@@ -56,15 +52,6 @@ function faceAreaOk(pts: { x: number; y: number }[]): boolean {
   return (maxX - minX) * (maxY - minY) >= FACE_AREA_MIN;
 }
 
-function aiToScores(ai: AIRating): Scores {
-  const traits = ai.traits as Record<TraitKey, number>;
-  return buildScores(
-    traits,
-    { label: ai.dom.label,  value: ai.dom.value  },
-    { label: ai.flaw.label, value: ai.flaw.value },
-  );
-}
-
 // ─── Hook ─────────────────────────────────────────────────────────────────────
 
 export function useFaceLandmarker() {
@@ -76,7 +63,6 @@ export function useFaceLandmarker() {
   const landmarkerRef    = useRef<FaceLandmarker | null>(null);
   const smoothedRef      = useRef<Scores | null>(null);
   const rawScoresRef     = useRef<Scores | null>(null);
-  const aiRatingRef      = useRef<AIRating | null>(null);
   const lastUpdateRef    = useRef(0);
   const lastTsRef        = useRef(-1);
   const lastVideoTimeRef = useRef(-1);
@@ -87,23 +73,10 @@ export function useFaceLandmarker() {
   const skippedRef       = useRef(0);
   const lastLumaRef      = useRef<number>(128);
 
-  // AI pre-fetch at t=10s so it's ready by the time scanning ends at t=15s
-  const aiPrefetchRef      = useRef<Promise<AIRating | null> | null>(null);
-  const aiPrefetchFiredRef = useRef(false);
-
-  // Calibration offsets (mean aiTrait − rawTrait, learned from historical data)
-  const calibrationRef     = useRef<Record<string, number> | null>(null);
-
   // Bonus detection tracking
   const firedBonusKeysRef  = useRef<Set<string>>(new Set());
+  const maxSmileRef        = useRef(0);
   const maxEyeRef          = useRef(0);
-
-  const calibrationData = useQuery(api.calibration.getCalibration);
-  useEffect(() => {
-    if (!calibrationData) return;
-    try { calibrationRef.current = JSON.parse(calibrationData.traitOffsets) as Record<string, number>; }
-    catch { /* malformed row — ignore */ }
-  }, [calibrationData]);
 
   const [status,           setStatus]           = useState<Status>("idle");
   const [phase,            setPhase]            = useState<Phase>("live");
@@ -126,10 +99,8 @@ export function useFaceLandmarker() {
     samplesRef.current        = [];
     skippedRef.current        = 0;
     scanStartRef.current      = performance.now();
-    aiPrefetchRef.current     = null;
-    aiPrefetchFiredRef.current = false;
     firedBonusKeysRef.current = new Set();
-
+    maxSmileRef.current      = 0;
     maxEyeRef.current        = 0;
     phaseRef.current         = "scanning";
     setPhase("scanning");
@@ -145,11 +116,8 @@ export function useFaceLandmarker() {
     skippedRef.current        = 0;
     smoothedRef.current       = null;
     rawScoresRef.current      = null;
-    aiRatingRef.current       = null;
-    aiPrefetchRef.current     = null;
-    aiPrefetchFiredRef.current = false;
     firedBonusKeysRef.current = new Set();
-
+    maxSmileRef.current      = 0;
     maxEyeRef.current        = 0;
     setPhase("live");
     setScores(null);
@@ -167,11 +135,8 @@ export function useFaceLandmarker() {
     skippedRef.current        = 0;
     smoothedRef.current       = null;
     rawScoresRef.current      = null;
-    aiRatingRef.current       = null;
-    aiPrefetchRef.current     = null;
-    aiPrefetchFiredRef.current = false;
     firedBonusKeysRef.current = new Set();
-
+    maxSmileRef.current      = 0;
     maxEyeRef.current        = 0;
     setPhase("live");
     setScores(null);
@@ -287,7 +252,7 @@ export function useFaceLandmarker() {
                   lastUpdateRef.current = now;
                   const snap = smoothedRef.current;
                   if (snap) {
-                    const noise = (Math.random() - 0.5) * 0.5;
+                    const noise = (Math.random() - 0.5) * 0.7;
                     const displayOverall = Math.max(1, Math.min(10, snap.overall + noise));
                     setScores({
                       ...snap,
@@ -318,6 +283,16 @@ export function useFaceLandmarker() {
                 // ── Live bonus detection ───────────────────────────────────────
                 const fired = firedBonusKeysRef.current;
 
+                const smile = detectSmile(pts);
+                if (smile.detected) {
+                  maxSmileRef.current = Math.max(maxSmileRef.current, smile.strength);
+                  if (!fired.has("smile")) {
+                    fired.add("smile");
+                    const delta = Math.min(0.15 + smile.strength * 0.15, 0.30);
+                    setLiveBonuses(prev => [...prev, { key: "smile", label: "Genuine Smile", delta, traitKey: "harmony" }]);
+                  }
+                }
+
                 const eyeOpen = detectEyeOpen(pts);
                 if (eyeOpen.detected) {
                   maxEyeRef.current = Math.max(maxEyeRef.current, eyeOpen.strength);
@@ -328,90 +303,57 @@ export function useFaceLandmarker() {
                   }
                 }
 
-                if (raw.traits.goldenRatio >= 8.0 && !fired.has("golden_ratio")) {
+                if (raw.traits.goldenRatio >= 7.5 && !fired.has("golden_ratio")) {
                   fired.add("golden_ratio");
                   setLiveBonuses(prev => [...prev, { key: "golden_ratio", label: "Phi Aligned", delta: 0.20, traitKey: "goldenRatio" }]);
                 }
 
-                if (raw.traits.jawline >= 8.0 && !fired.has("sharp_jaw")) {
+                if (raw.traits.jawline >= 7.5 && !fired.has("sharp_jaw")) {
                   fired.add("sharp_jaw");
                   setLiveBonuses(prev => [...prev, { key: "sharp_jaw", label: "Sharp Mandible", delta: 0.20, traitKey: "jawline" }]);
                 }
 
-                if (raw.traits.symmetry >= 8.5 && !fired.has("mirror_symmetry")) {
+                if (raw.traits.symmetry >= 8.0 && !fired.has("mirror_symmetry")) {
                   fired.add("mirror_symmetry");
                   setLiveBonuses(prev => [...prev, { key: "mirror_symmetry", label: "Mirror Symmetry", delta: 0.15, traitKey: "symmetry" }]);
                 }
 
-                if (raw.traits.harmony >= 8.0 && !fired.has("perfect_harmony")) {
+                if (raw.traits.harmony >= 7.5 && !fired.has("perfect_harmony")) {
                   fired.add("perfect_harmony");
                   setLiveBonuses(prev => [...prev, { key: "perfect_harmony", label: "Perfect Harmony", delta: 0.15, traitKey: "harmony" }]);
                 }
 
-                // ── Pre-fetch Gemini at t=10s (5s head-start before scan ends) ──
-                if (elapsed >= 10_000 && !aiPrefetchFiredRef.current) {
-                  aiPrefetchFiredRef.current = true;
-                  const earlyFrame = captureVideoFrame(v);
-                  if (earlyFrame) aiPrefetchRef.current = rateFromImage(earlyFrame);
-                }
-
-                // ── Transition to analyzing ────────────────────────────────────
+                // ── Transition to analyzing (score computation) ──────────────
                 if (elapsed >= SCAN_DURATION_MS) {
                   phaseRef.current = "analyzing";
                   setPhase("analyzing");
                   setScanProgress(1);
 
-                  const frame    = captureVideoFrame(v);
                   const fallback = samplesRef.current.length >= 3
                     ? aggregateMedian(samplesRef.current)
                     : smoothedRef.current;
 
                   rawScoresRef.current = fallback;
 
-                  const capturedLuma = lastLumaRef.current;
-                  const capturedEye  = maxEyeRef.current;
+                  const capturedLuma  = lastLumaRef.current;
+                  const capturedSmile = maxSmileRef.current;
+                  const capturedEye   = maxEyeRef.current;
 
-                  void (async () => {
-                    let base: Scores | null = null;
-                    let aiHighlights: string[] = [];
-
-                    // Use pre-fetched promise when available (started at t=10s)
-                    const aiResult = await (
-                      aiPrefetchRef.current ??
-                      (frame ? rateFromImage(frame) : Promise.resolve(null))
-                    );
-                    if (aiResult) {
-                      aiRatingRef.current = aiResult;
-                      base = aiToScores(aiResult);
-                      aiHighlights = aiResult.highlights ?? [];
-                    }
-
-                    if (!base) {
-                      // Apply per-trait calibration offsets (learned from historical data)
-                      // to correct systematic bias in the landmark-geometry scorer.
-                      const offsets = calibrationRef.current;
-                      if (fallback && offsets) {
-                        const corrected = { ...fallback.traits } as Record<TraitKey, number>;
-                        for (const [k, delta] of Object.entries(offsets)) {
-                          corrected[k as TraitKey] = Math.max(1, Math.min(10, corrected[k as TraitKey] + delta));
-                        }
-                        base = { ...fallback, traits: corrected as Scores["traits"] };
-                      } else {
-                        base = fallback;
-                      }
-                    }
-
-                    if (base && mountedRef.current) {
-                      const candy   = generateCandy();
-                      const bonuses = computeBonuses(base.traits, {
-                        luma:        capturedLuma,
-                        eyeStrength: capturedEye,
-                        aiHighlights,
+                  // Brief analyzing pause, then compute final score immediately
+                  setTimeout(() => {
+                    if (!mountedRef.current) return;
+                    const base = fallback;
+                    if (base) {
+                      const candy      = generateCandy();
+                      const bonuses    = computeBonuses(base.traits, {
+                        luma:          capturedLuma,
+                        smileStrength: capturedSmile,
+                        eyeStrength:   capturedEye,
                       });
-                      const badges = computeBadges(base.traits);
+                      const badges     = computeBadges(base.traits);
                       const bonusDelta = bonuses.reduce((s, b) => s + b.delta, 0);
                       const baseMean   = traitMean(base.traits);
-                      const finalOverall = Math.max(1, Math.min(10, baseMean * 1.2 + 0.2 + candy + bonusDelta));
+                      const finalOverall = Math.max(3, Math.min(10, baseMean * 1.3 + 0.5 + candy + bonusDelta));
                       const final: Scores = {
                         ...base,
                         overall: finalOverall,
@@ -422,11 +364,11 @@ export function useFaceLandmarker() {
                       phaseRef.current = "complete";
                       setPhase("complete");
                       setScores(final);
-                    } else if (mountedRef.current) {
+                    } else {
                       phaseRef.current = "complete";
                       setPhase("complete");
                     }
-                  })();
+                  }, 700);
                 }
               }
             }
@@ -465,6 +407,5 @@ export function useFaceLandmarker() {
     scanProgress, samplesCollected, samplesSkipped,
     liveBonuses,
     rawScores: rawScoresRef.current,
-    aiRating: aiRatingRef.current,
   };
 }

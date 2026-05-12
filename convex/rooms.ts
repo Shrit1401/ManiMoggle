@@ -255,7 +255,7 @@ export const startTournament = mutation({
     if (N < 2) return;
 
     const slots = players.slice(0, N).map(p => p.sessionId);
-    const bracket = buildRoundRobin(slots);
+    const bracket = buildBracket(slots);
 
     await ctx.db.patch(roomId, {
       tournamentBracket: JSON.stringify(bracket),

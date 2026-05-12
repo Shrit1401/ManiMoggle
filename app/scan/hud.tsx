@@ -82,7 +82,7 @@ export function Hud({
 
         {phase === "complete" && (
           <p className="font-mono text-[6.5px] tracking-[0.3em] uppercase text-cyan-400 mb-1">
-            ✦ AI Verdict
+            ✦ Final Score
           </p>
         )}
 
@@ -200,7 +200,7 @@ export function Hud({
         {phase === "analyzing" && (
           <div className="pointer-events-none flex items-center gap-2.5 glass rounded-full px-5 py-3">
             <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-ping" />
-            <span className="font-mono text-[9px] tracking-[0.22em] uppercase text-cyan-300">AI Analysis…</span>
+            <span className="font-mono text-[9px] tracking-[0.22em] uppercase text-cyan-300">Computing Score…</span>
           </div>
         )}
 

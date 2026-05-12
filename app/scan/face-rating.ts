@@ -84,39 +84,34 @@ export function lightingConfidence(luma: number): number {
 
 function canthalTiltScore(lm: LM[]): number {
   const fw = dist(lm[234], lm[454]);
-  if (fw === 0) return 4.5;
+  if (fw === 0) return 5.5;
   const leftTilt  = (lm[133].y - lm[33].y)  / fw;
   const rightTilt = (lm[362].y - lm[263].y) / fw;
-  return clamp(4.5 + ((leftTilt + rightTilt) / 2) * 230, 1, 10);
+  return clamp(5.5 + ((leftTilt + rightTilt) / 2) * 230, 1, 10);
 }
 
 // ─── 2. Symmetry ─────────────────────────────────────────────────────────────
 
 function symmetryScore(lm: LM[]): number {
   const fw = dist(lm[234], lm[454]);
-  if (fw === 0) return 5.5;
+  if (fw === 0) return 6.5;
   const midX = (lm[1].x + lm[152].x) / 2;
   const pairs: [number, number][] = [[33,263],[133,362],[61,291],[172,397],[234,454]];
   let dev = 0;
   for (const [l, r] of pairs) dev += Math.abs(midX - lm[l].x - (lm[r].x - midX)) / fw;
-  return clamp(10 - (dev / pairs.length) * 260, 1, 10);
+  return clamp(9.8 - (dev / pairs.length) * 175, 1, 10);
 }
 
-// ─── 3. Jawline — sharper angle = higher score; asymmetric to reward definition ─
-// Ideal gonial angle ~110°. Being sharper is rewarded more leniently than being weak.
+// ─── 3. Jawline — blended toward neutral floor in poor lighting ───────────────
 
 function jawlineScore(lm: LM[], luma?: number): number {
   const l = angleDeg(lm[234], lm[172], lm[152]);
   const r = angleDeg(lm[454], lm[397], lm[152]);
-  const avg = (l + r) / 2;
-  const dev = avg - 110; // negative = sharper than ideal, positive = weaker
-  const raw = dev < 0
-    ? clamp(9.5 - Math.abs(dev) / 4.5, 1, 10)  // sharp side: lenient drop
-    : clamp(9.5 - dev / 2.2, 1, 10);             // weak side: steep drop
+  const raw = clamp(9.2 - Math.abs((l + r) / 2 - 120) / 5.5, 1, 10);
   if (luma === undefined) return raw;
   const conf = lightingConfidence(luma);
-  // In bad lighting, blend toward a neutral floor so poor rooms don't kill jaw score
-  return raw * conf + 6.0 * (1 - conf);
+  // In bad lighting, blend toward a generous 7.0 so poor rooms don't penalise jaw
+  return raw * conf + 7.0 * (1 - conf);
 }
 
 // ─── 4. Harmony ───────────────────────────────────────────────────────────────
@@ -126,10 +121,10 @@ function facialThirdsRaw(lm: LM[]): number {
   const t2 = Math.abs(lm[94].y  - lm[168].y);
   const t3 = Math.abs(lm[152].y - lm[94].y);
   const total = t1 + t2 + t3;
-  if (total < 0.01) return 5.5;
+  if (total < 0.01) return 6.5;
   const ideal = total / 3;
   const dev = (Math.abs(t1 - ideal) + Math.abs(t2 - ideal) + Math.abs(t3 - ideal)) / total;
-  return clamp(9.5 - dev * 18, 1, 10);
+  return clamp(9.5 - dev * 12, 1, 10);
 }
 
 function lipHarmonyRaw(lm: LM[]): number {
@@ -169,14 +164,14 @@ function harmonyScore(lm: LM[]): number {
 // ─── 5. Skin — lighting quality proxy ────────────────────────────────────────
 
 function skinScore(luma?: number): number {
-  if (luma === undefined) return 6.2;
-  if (luma < 40)  return 3.8;
-  if (luma < 80)  return 5.2;
-  if (luma < 120) return 6.0;
-  if (luma < 160) return 7.0;
-  if (luma < 200) return 7.5;
-  if (luma < 228) return 6.8;
-  return 5.5;
+  if (luma === undefined) return 7.0;
+  if (luma < 40)  return 5.5;
+  if (luma < 80)  return 6.5;
+  if (luma < 120) return 7.2;
+  if (luma < 160) return 7.8;
+  if (luma < 200) return 8.2;
+  if (luma < 228) return 7.5;
+  return 6.5;
 }
 
 // ─── 6. Golden Ratio ──────────────────────────────────────────────────────────
@@ -186,22 +181,36 @@ const PHI = 1.6180339887;
 function goldenRatioScore(lm: LM[]): number {
   const totalH = lm[152].y - lm[10].y;
   const lowerH = lm[152].y - lm[1].y;
-  if (totalH < 0.005) return 5;
+  if (totalH < 0.005) return 6;
   const lowerPct = lowerH / totalH;
-  const s1 = clamp(9.5 - Math.abs(lowerPct - 0.382) * 50, 1, 10);
+  const s1 = clamp(9.5 - Math.abs(lowerPct - 0.382) * 36, 1, 10);
 
   const mouthW = Math.abs(lm[291].x - lm[61].x);
   const noseW  = Math.abs(lm[326].x - lm[97].x);
-  const s2 = noseW < 0.001 ? 5 : clamp(9.5 - Math.abs(mouthW / noseW - PHI) / PHI * 22, 1, 10);
+  const s2 = noseW < 0.001 ? 6 : clamp(9.5 - Math.abs(mouthW / noseW - PHI) / PHI * 15, 1, 10);
 
   const upperH = lm[168].y - lm[10].y;
   const midH   = lm[1].y   - lm[168].y;
-  const s3 = midH < 0.001 ? 5 : clamp(9.5 - Math.abs(upperH / midH - PHI) / PHI * 18, 1, 10);
+  const s3 = midH < 0.001 ? 6 : clamp(9.5 - Math.abs(upperH / midH - PHI) / PHI * 12, 1, 10);
 
   return clamp(s1 * 0.4 + s2 * 0.35 + s3 * 0.25, 1, 10);
 }
 
-// ─── Detector — eye aspect ratio (for live callouts + bonus) ─────────────────
+// ─── Detectors (for live callouts + bonus computation) ────────────────────────
+
+// Returns strength 0–1; detected when both mouth corners lift above lip center
+export function detectSmile(lm: LM[]): { detected: boolean; strength: number } {
+  const fw = dist(lm[234], lm[454]);
+  if (fw === 0) return { detected: false, strength: 0 };
+  const lipCenterY   = (lm[13].y + lm[14].y) / 2;
+  const leftLift     = lipCenterY - lm[61].y;   // positive when corner above center
+  const rightLift    = lipCenterY - lm[291].y;
+  const avgLift      = (leftLift + rightLift) / 2;
+  const normalized   = avgLift / fw;
+  const THRESHOLD    = 0.008;
+  if (normalized < THRESHOLD) return { detected: false, strength: 0 };
+  return { detected: true, strength: clamp((normalized - THRESHOLD) / 0.03, 0, 1) };
+}
 
 // Eye aspect ratio — rewarded when eyes are open and engaged
 export function detectEyeOpen(lm: LM[]): { detected: boolean; strength: number } {
@@ -260,17 +269,26 @@ export function computeBadges(traits: Record<TraitKey, number>): Badge[] {
 }
 
 // ─── Bonus computation ────────────────────────────────────────────────────────
-// No smile bonus — face should be neutral/still. Structural bonuses only.
 
 export function computeBonuses(
   traits: Record<TraitKey, number>,
   opts: {
     luma?:         number;
-    eyeStrength?:  number;
-    aiHighlights?: string[];
+    smileStrength?: number;
+    eyeStrength?:   number;
+    aiHighlights?:  string[];
   } = {},
 ): BonusEvent[] {
   const bonuses: BonusEvent[] = [];
+
+  const smile = opts.smileStrength ?? 0;
+  if (smile > 0) {
+    bonuses.push({
+      key: "smile", label: "Genuine Smile",
+      delta: clamp(0.15 + smile * 0.15, 0.15, 0.30),
+      traitKey: "harmony",
+    });
+  }
 
   const eye = opts.eyeStrength ?? 0;
   if (eye > 0) {
@@ -352,12 +370,11 @@ function computeTraits(lm: LM[], luma?: number): Record<TraitKey, number> {
   };
 }
 
-// Jawline carries the most weight — definition and angle matter most
 const TRAIT_WEIGHTS: Record<TraitKey, number> = {
-  jawline:     0.22,
-  harmony:     0.25,
-  symmetry:    0.23,
-  canthalTilt: 0.17,
+  harmony:     0.27,
+  symmetry:    0.25,
+  canthalTilt: 0.18,
+  jawline:     0.17,
   skin:        0.08,
   goldenRatio: 0.05,
 };
@@ -373,24 +390,24 @@ export function traitMean(traits: Record<TraitKey, number>): number {
 }
 
 export function overallFromMean(rawMean: number, candy = 0): number {
-  return clamp(rawMean * 1.2 + 0.2 + candy, 3, 10);
+  return clamp(rawMean * 1.3 + 0.5 + candy, 3, 10);
 }
 
-// Random candy boost (0.15–0.45)
+// Random candy boost: generous baseline (0.5–1.1)
 export function generateCandy(): number {
-  return 0.15 + Math.random() * 0.30;
+  return 0.5 + Math.random() * 0.6;
 }
 
 // Per-frame jitter for live variation
-export function jitterTraits(traits: Record<TraitKey, number>, magnitude = 1.2): Record<TraitKey, number> {
+export function jitterTraits(traits: Record<TraitKey, number>, magnitude = 1.8): Record<TraitKey, number> {
   const j = (mag = magnitude) => (Math.random() - 0.5) * mag;
   return {
     canthalTilt: clamp(traits.canthalTilt + j(),      1, 10),
     symmetry:    clamp(traits.symmetry    + j(),      1, 10),
     jawline:     clamp(traits.jawline     + j(),      1, 10),
     harmony:     clamp(traits.harmony     + j(),      1, 10),
-    skin:        clamp(traits.skin        + j(0.4),   1, 10),
-    goldenRatio: clamp(traits.goldenRatio + j(0.6),   1, 10),
+    skin:        clamp(traits.skin        + j(0.7),   1, 10),
+    goldenRatio: clamp(traits.goldenRatio + j(0.9),   1, 10),
   };
 }
 

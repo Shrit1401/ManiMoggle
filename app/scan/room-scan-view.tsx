@@ -495,7 +495,7 @@ function VsBar({ myScore, oppScore, phase, scanProgress }: {
         ) : phase === "analyzing" ? (
           <div className="flex items-center gap-1">
             <span className="w-1 h-1 rounded-full bg-cyan-400 animate-ping shrink-0" />
-            <span className="font-mono text-[6px] tracking-widest uppercase text-cyan-400">AI…</span>
+            <span className="font-mono text-[6px] tracking-widest uppercase text-cyan-400">Computing…</span>
           </div>
         ) : secsLeft !== null ? (
           <span className="font-mono text-[6px] tracking-widest text-white/28">{secsLeft}s remaining</span>
@@ -530,7 +530,7 @@ function TimerBar({ phase, scanProgress, myReady, oppReady }: {
               : phase === "scanning" ? "text-white text-[22px]"
               : phase === "analyzing" ? "text-cyan-400 text-[13px] tracking-widest"
               : "text-white/35 text-[20px]"}`}>
-            {phase === "analyzing" ? "AI SCANNING" : timerStr}
+            {phase === "analyzing" ? "COMPUTING" : timerStr}
           </span>
         </div>
         <div className="flex items-center gap-2">
@@ -558,7 +558,7 @@ export function RoomScanView({ roomId, sessionId, playerName, opponent, opponent
     retry, startScan,
     scanProgress, samplesCollected, samplesSkipped,
     liveBonuses,
-    rawScores, aiRating,
+    rawScores,
   } = useFaceLandmarker();
 
   // Start WebRTC immediately — don't wait for camera. Tracks are added once
@@ -644,10 +644,6 @@ export function RoomScanView({ roomId, sessionId, playerName, opponent, opponent
       capturedAt: Date.now(),
       rawTraitsJson:    rawScores ? JSON.stringify(rawScores.traits) : undefined,
       rawOverall:       rawScores?.overall,
-      aiTraitsJson:     aiRating ? JSON.stringify(aiRating.traits) : undefined,
-      aiOverall:        aiRating ? Object.values(aiRating.traits).reduce((s, v) => s + v, 0) / 6 : undefined,
-      aiDomLabel:       aiRating?.dom.label,
-      aiFlawLabel:      aiRating?.flaw.label,
       finalOverall:     scores.overall,
       finalElo:         scores.elo,
       finalSub:         scores.sub,
@@ -658,7 +654,7 @@ export function RoomScanView({ roomId, sessionId, playerName, opponent, opponent
       samplesCollected,
       samplesSkipped,
     }).catch(() => {});
-  }, [phase, scores, rawScores, aiRating, roomId, sessionId, submitScore, saveScanData, onDone, samplesCollected, samplesSkipped]);
+  }, [phase, scores, rawScores, roomId, sessionId, submitScore, saveScanData, onDone, samplesCollected, samplesSkipped]);
 
   // Forfeit on unmount if scan was not completed
   useEffect(() => {
@@ -772,7 +768,7 @@ export function RoomScanView({ roomId, sessionId, playerName, opponent, opponent
           <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-10">
             <div className="flex items-center gap-2 rounded-full glass px-5 py-2.5 ring-1 ring-cyan-400/40">
               <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-ping shrink-0" />
-              <span className="font-mono text-[9px] tracking-[0.22em] uppercase text-cyan-300">AI Analysis…</span>
+              <span className="font-mono text-[9px] tracking-[0.22em] uppercase text-cyan-300">Computing Score…</span>
             </div>
           </div>
         )}

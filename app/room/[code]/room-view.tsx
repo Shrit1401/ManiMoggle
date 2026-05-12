@@ -350,6 +350,268 @@ function BattleView({ room, sessionId, name, onStartScan }: {
 // TOURNAMENT MODE
 // ═══════════════════════════════════════════════════════════════════════════════
 
+// ─── Visual bracket ───────────────────────────────────────────────────────────
+
+const SH   = 52;   // slot height px
+const SW   = 138;  // slot width px
+const HG   = 40;   // horizontal gap between columns (for connector lines)
+const LH   = 26;   // label area height at top
+const CGAP = 48;   // extra gap before champion column
+const CW   = 120;  // champion column width
+const CH   = 80;   // champion box height
+
+function PillSlot({ sid, score, winner, active, players, sessionId }: {
+  sid: string | null; score: number | null; winner: string | null;
+  active: boolean; players: Player[]; sessionId: string;
+}) {
+  const player   = sid ? players.find(p => p.sessionId === sid) : null;
+  const isWinner = sid !== null && winner === sid;
+  const isMe     = sid === sessionId;
+  const scanning = player?.phase === "scanning";
+  const isEmpty  = !sid;
+
+  return (
+    <div
+      style={{
+        height: SH,
+        borderRadius: SH / 2,
+        display: "flex", alignItems: "center",
+        padding: "0 16px",
+        gap: 8,
+        transition: "all 0.3s",
+        background: isWinner
+          ? "linear-gradient(135deg, rgba(251,191,36,0.22), rgba(251,191,36,0.08))"
+          : isMe
+            ? "linear-gradient(135deg, rgba(34,211,238,0.18), rgba(34,211,238,0.06))"
+            : active
+              ? "rgba(255,255,255,0.07)"
+              : isEmpty
+                ? "rgba(255,255,255,0.025)"
+                : "rgba(255,255,255,0.04)",
+        border: `1.5px solid ${
+          isWinner ? "rgba(251,191,36,0.5)"
+            : isMe ? "rgba(34,211,238,0.4)"
+            : active ? "rgba(255,255,255,0.18)"
+            : "rgba(255,255,255,0.1)"
+        }`,
+        opacity: winner && !isWinner ? 0.38 : 1,
+        boxShadow: isWinner ? "0 0 20px rgba(251,191,36,0.15)" : isMe ? "0 0 16px rgba(34,211,238,0.12)" : "none",
+      }}
+    >
+      {!isEmpty && (
+        <div
+          style={{
+            width: 26, height: 26, borderRadius: "50%", flexShrink: 0,
+            display: "flex", alignItems: "center", justifyContent: "center",
+            fontFamily: "monospace", fontSize: 11, fontWeight: 700,
+            background: isWinner ? "rgba(251,191,36,0.3)"
+              : isMe ? "rgba(34,211,238,0.25)"
+              : "rgba(255,255,255,0.1)",
+            color: isWinner ? "#fbbf24" : isMe ? "#22d3ee" : "rgba(255,255,255,0.8)",
+          }}
+        >
+          {isMe ? "Y" : (player?.name?.charAt(0) ?? "?")}
+        </div>
+      )}
+      <span style={{
+        fontFamily: "monospace", fontSize: 10, fontWeight: 700,
+        textTransform: "uppercase", letterSpacing: "0.08em",
+        color: isWinner ? "#fbbf24" : isMe ? "#22d3ee" : isEmpty ? "rgba(255,255,255,0.2)" : "rgba(255,255,255,0.85)",
+        flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+      }}>
+        {isEmpty ? "TBD" : isMe ? "YOU" : (player?.name ?? "?")}
+      </span>
+      {score !== null && (
+        <span style={{
+          fontFamily: "monospace", fontSize: 12, fontWeight: 900,
+          color: isWinner ? "#fbbf24" : "rgba(255,255,255,0.4)", flexShrink: 0,
+        }}>
+          {score.toFixed(1)}
+        </span>
+      )}
+      {score === null && scanning && (
+        <span style={{
+          width: 7, height: 7, borderRadius: "50%", flexShrink: 0,
+          background: "#22d3ee", animation: "ping 1s cubic-bezier(0,0,0.2,1) infinite",
+        }} />
+      )}
+      {isWinner && score !== null && <span style={{ fontSize: 12, flexShrink: 0 }}>👑</span>}
+    </div>
+  );
+}
+
+function VisualBracket({ bracket, players, sessionId }: {
+  bracket: Bracket; players: Player[]; sessionId: string;
+}) {
+  const rounds    = bracket.rounds;
+  const numRounds = rounds.length;
+  const M         = rounds[0].length;
+  const totalH    = LH + M * (2 * SH + 4);
+
+  // Column x-starts
+  const colX = (r: number) => r * (SW + HG);
+  const champX = numRounds * (SW + HG) + CGAP;
+  const totalW = champX + CW + 8;
+
+  // Junction Y of match (r, i) — the point between slot A and slot B, used for connector lines
+  const matchCY = (r: number, i: number) =>
+    LH + (2 * i + 1) * Math.pow(2, r) * SH;
+
+  // Horizontal mid-point for connectors
+  const midX = (r: number) => colX(r) + SW + HG / 2;
+
+  const rLabel = (r: number) => {
+    if (numRounds === 1) return "Final";
+    if (r === numRounds - 1) return "Final";
+    if (r === numRounds - 2 && numRounds >= 3) return "Semi";
+    if (r === numRounds - 3 && numRounds >= 4) return "QF";
+    return `R${r + 1}`;
+  };
+
+  // Champion data
+  const champSid   = bracket.champion;
+  const champPlayer = champSid ? players.find(p => p.sessionId === champSid) : null;
+  const isComplete = !!champSid;
+  const champCY    = totalH / 2;
+  const finalRound = rounds[numRounds - 1];
+  const finalMatch = finalRound?.[0];
+  const finalCY    = matchCY(numRounds - 1, 0);
+
+  return (
+    <div style={{ overflowX: "auto", overflowY: "visible", WebkitOverflowScrolling: "touch", margin: "0 -4px" }}>
+      <div style={{ position: "relative", width: Math.max(totalW, 280), height: Math.max(totalH, CH + LH + 16), paddingBottom: 8 }}>
+
+        {/* SVG connector lines */}
+        <svg
+          style={{ position: "absolute", top: 0, left: 0, pointerEvents: "none", overflow: "visible" }}
+          width={totalW} height={Math.max(totalH, CH + LH + 16)}
+        >
+          {/* Round-to-round connectors */}
+          {rounds.map((round, r) => {
+            if (r >= numRounds - 1) return null;
+            const pairs = Math.floor(round.length / 2);
+            return Array.from({ length: pairs }, (_, pi) => {
+              const i0 = pi * 2, i1 = pi * 2 + 1;
+              if (i1 >= round.length) return null;
+              const cy0   = matchCY(r, i0);
+              const cy1   = matchCY(r, i1);
+              const nextCY = matchCY(r + 1, pi);
+              const rx     = colX(r) + SW;
+              const mx     = midX(r);
+              const nx     = colX(r + 1);
+              const done  = round[i0]?.winner && round[i1]?.winner;
+              const col   = done ? "rgba(251,191,36,0.4)" : "rgba(255,255,255,0.15)";
+              return (
+                <g key={`cn-${r}-${pi}`}>
+                  <line x1={rx} y1={cy0} x2={mx} y2={cy0} stroke={col} strokeWidth="1.5" strokeLinecap="round" />
+                  <line x1={rx} y1={cy1} x2={mx} y2={cy1} stroke={col} strokeWidth="1.5" strokeLinecap="round" />
+                  <line x1={mx} y1={cy0} x2={mx} y2={cy1} stroke={col} strokeWidth="1.5" strokeLinecap="round" />
+                  <line x1={mx} y1={nextCY} x2={nx} y2={nextCY} stroke={col} strokeWidth="1.5" strokeLinecap="round" />
+                </g>
+              );
+            });
+          })}
+
+          {/* Final round → champion connector */}
+          {finalMatch && (
+            (() => {
+              const cy0  = matchCY(numRounds - 1, 0);
+              const rx   = colX(numRounds - 1) + SW;
+              const mx   = rx + CGAP / 2;
+              const col  = isComplete ? "rgba(251,191,36,0.55)" : "rgba(255,255,255,0.15)";
+              return (
+                <g>
+                  <line x1={rx} y1={cy0} x2={mx} y2={cy0} stroke={col} strokeWidth="1.5" strokeLinecap="round" />
+                  <line x1={mx} y1={cy0} x2={mx} y2={champCY} stroke={col} strokeWidth="1.5" strokeLinecap="round" />
+                  <line x1={mx} y1={champCY} x2={champX} y2={champCY} stroke={col} strokeWidth="1.5" strokeLinecap="round" />
+                </g>
+              );
+            })()
+          )}
+        </svg>
+
+        {/* Round labels */}
+        {rounds.map((_, r) => (
+          <div key={`lbl-${r}`} style={{
+            position: "absolute", left: colX(r), top: 0, width: SW,
+            fontFamily: "monospace", fontSize: 7, letterSpacing: "0.45em",
+            textTransform: "uppercase", textAlign: "center",
+            color: r === bracket.currentRound ? "rgba(34,211,238,0.75)" : "rgba(255,255,255,0.22)",
+          }}>
+            {rLabel(r)}
+          </div>
+        ))}
+        <div style={{
+          position: "absolute", left: champX, top: 0, width: CW,
+          fontFamily: "monospace", fontSize: 7, letterSpacing: "0.45em",
+          textTransform: "uppercase", textAlign: "center",
+          color: isComplete ? "rgba(251,191,36,0.7)" : "rgba(255,255,255,0.15)",
+        }}>
+          Champion
+        </div>
+
+        {/* Match slots per round */}
+        {rounds.map((round, r) => {
+          const isCurr = r === bracket.currentRound;
+          return round.map((match, i) => {
+            if (!match.a && !match.b) return null;
+            const cy      = matchCY(r, i);
+            const settled = match.winner !== null;
+            return (
+              <div key={`m-${r}-${i}`} style={{ position: "absolute", left: colX(r), top: cy - SH, width: SW }}>
+                <PillSlot sid={match.a} score={settled ? match.aScore : null}
+                  winner={match.winner} active={isCurr && !settled}
+                  players={players} sessionId={sessionId} />
+                <div style={{ height: 4, display: "flex", alignItems: "center", padding: "0 12px" }}>
+                  <div style={{ flex: 1, height: 1, background: "rgba(255,255,255,0.08)" }} />
+                </div>
+                <PillSlot sid={match.b} score={settled ? match.bScore : null}
+                  winner={match.winner} active={isCurr && !settled}
+                  players={players} sessionId={sessionId} />
+              </div>
+            );
+          });
+        })}
+
+        {/* Champion box */}
+        <div style={{
+          position: "absolute",
+          left: champX,
+          top: champCY - CH / 2,
+          width: CW,
+          height: CH,
+          borderRadius: 16,
+          display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 4,
+          background: isComplete
+            ? "linear-gradient(135deg, rgba(251,191,36,0.2), rgba(251,191,36,0.06))"
+            : "rgba(255,255,255,0.025)",
+          border: `1.5px solid ${isComplete ? "rgba(251,191,36,0.45)" : "rgba(255,255,255,0.1)"}`,
+          boxShadow: isComplete ? "0 0 30px rgba(251,191,36,0.12)" : "none",
+        }}>
+          {isComplete ? (
+            <>
+              <span style={{ fontSize: 20 }}>🏆</span>
+              <span style={{
+                fontFamily: "monospace", fontSize: 10, fontWeight: 700,
+                textTransform: "uppercase", letterSpacing: "0.1em",
+                color: "#fbbf24", textAlign: "center", padding: "0 6px",
+                overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: "100%",
+              }}>
+                {champPlayer?.name ?? "?"}
+              </span>
+            </>
+          ) : (
+            <span style={{
+              fontFamily: "monospace", fontSize: 9, letterSpacing: "0.25em",
+              textTransform: "uppercase", color: "rgba(255,255,255,0.2)",
+            }}>TBD</span>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function MatchCard({
   match, players, sessionId, round, onReady,
 }: {
@@ -623,11 +885,6 @@ function TournamentView({ room, sessionId, name, onStartScan }: {
   // ── Complete ───────────────────────────────────────────────────────────────
   if (status === "complete" && bracket) {
     const champion = players.find(p => p.sessionId === bracket.champion);
-    const isRR = bracket.format === "roundrobin";
-    const finalStandings = isRR && bracket.standings
-      ? Object.entries(bracket.standings)
-          .sort(([, a], [, b]) => b.wins - a.wins || b.totalScore - a.totalScore)
-      : [];
 
     return (
       <div className="flex flex-col bg-black min-h-[100dvh] overflow-hidden">
@@ -635,7 +892,7 @@ function TournamentView({ room, sessionId, name, onStartScan }: {
           <button onClick={() => router.push("/")} className="font-mono text-[8px] tracking-[0.25em] uppercase text-white/28 hover:text-white/55 p-1">← Exit</button>
           <div className="flex flex-col items-center">
             <span className="font-mono text-[7px] tracking-[0.35em] uppercase text-white/25">
-              {isRR ? "Round-Robin" : "Tournament"} · Complete
+              🏆 Tournament · Complete
             </span>
             <CopyCodeRow code={room.code} />
           </div>
@@ -679,101 +936,13 @@ function TournamentView({ room, sessionId, name, onStartScan }: {
                   <span className="font-mono text-[8px] text-amber-300/70 uppercase tracking-widest">PSL</span>
                 </div>
               )}
-              {isRR && bracket.standings?.[bracket.champion ?? ""] && (
-                <p className="font-mono text-[9px] tracking-[0.2em] text-amber-300/60 mt-1">
-                  {bracket.standings[bracket.champion!].wins}W · {bracket.standings[bracket.champion!].losses}L
-                </p>
-              )}
             </div>
           </div>
 
-          {/* Round-robin final standings */}
-          {isRR && finalStandings.length > 0 && (
-            <div className="w-full flex flex-col gap-1.5">
-              <p className="font-mono text-[7px] tracking-[0.35em] uppercase text-white/30 px-1">Final Standings</p>
-              {finalStandings.map(([sid, s], i) => {
-                const pl = players.find(p => p.sessionId === sid);
-                const avgScore = s.wins + s.losses > 0 ? (s.totalScore / (s.wins + s.losses)) : null;
-                const medals = ["🥇","🥈","🥉"];
-                return (
-                  <div key={sid} className={`flex items-center gap-3 px-3 py-3 rounded-2xl ring-1
-                    ${i === 0 ? "bg-amber-400/10 ring-amber-400/30"
-                      : sid === sessionId ? "bg-cyan-500/8 ring-cyan-400/20"
-                      : "bg-white/[0.025] ring-white/8"}`}>
-                    <span className="text-base w-5 text-center shrink-0">{medals[i] ?? `#${i+1}`}</span>
-                    <div className="w-8 h-8 rounded-full bg-white/10 ring-1 ring-white/20
-                      flex items-center justify-center font-mono text-[11px] font-bold text-white shrink-0">
-                      {pl?.name.charAt(0) ?? "?"}
-                    </div>
-                    <span className={`font-sans font-semibold text-[12px] tracking-[0.08em] uppercase flex-1 truncate
-                      ${i === 0 ? "text-amber-400" : sid === sessionId ? "text-cyan-300" : "text-white/70"}`}>
-                      {pl?.name ?? "—"}
-                    </span>
-                    <div className="flex items-center gap-2 shrink-0 font-mono text-[8px]">
-                      <span className="text-emerald-400">{s.wins}W</span>
-                      <span className="text-white/20">·</span>
-                      <span className="text-rose-400/70">{s.losses}L</span>
-                      {avgScore !== null && (
-                        <>
-                          <span className="text-white/20">·</span>
-                          <span className="text-white/50">{avgScore.toFixed(1)}</span>
-                        </>
-                      )}
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          )}
-
-          {/* Match history (rounds) */}
-          <div className="w-full flex flex-col gap-3">
-            {bracket.rounds.map((round, ri) => {
-              const realMatches = round.filter(m => m.a && m.b);
-              if (realMatches.length === 0) return null;
-              return (
-                <div key={ri} className="flex flex-col gap-2">
-                  <p className="font-mono text-[7px] tracking-[0.35em] uppercase text-white/30 px-1">
-                    Round {ri + 1}
-                  </p>
-                  {realMatches.map((m, mi) => {
-                    const aP = players.find(p => p.sessionId === m.a);
-                    const bP = players.find(p => p.sessionId === m.b);
-                    const aWon = m.winner === m.a;
-                    const bWon = m.winner === m.b;
-                    return (
-                      <div key={mi} className="flex items-center gap-3 px-4 py-3 rounded-2xl bg-white/[0.03] ring-1 ring-white/8">
-                        <div className="flex-1 flex flex-col gap-0.5">
-                          <span className={`font-sans font-bold text-[12px] uppercase truncate
-                            ${aWon ? "text-amber-400" : "text-white/50"}`}>
-                            {aWon && <span className="mr-1">👑</span>}{aP?.name ?? "—"}
-                          </span>
-                          {m.aScore !== null && (
-                            <span className={`font-mono font-black text-[18px] tabular-nums leading-none
-                              ${aWon ? "text-white" : "text-white/30"}`}>
-                              {m.aScore.toFixed(1)}
-                            </span>
-                          )}
-                        </div>
-                        <span className="font-mono text-[7px] text-white/15 shrink-0">VS</span>
-                        <div className="flex-1 flex flex-col items-end gap-0.5">
-                          <span className={`font-sans font-bold text-[12px] uppercase truncate
-                            ${bWon ? "text-amber-400" : "text-white/50"}`}>
-                            {bP?.name ?? "BYE"}{bWon && <span className="ml-1">👑</span>}
-                          </span>
-                          {m.bScore !== null && (
-                            <span className={`font-mono font-black text-[18px] tabular-nums leading-none
-                              ${bWon ? "text-white" : "text-white/30"}`}>
-                              {m.bScore.toFixed(1)}
-                            </span>
-                          )}
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              );
-            })}
+          {/* Final bracket */}
+          <div className="w-full flex flex-col gap-2">
+            <p className="font-mono text-[7px] tracking-[0.35em] uppercase text-white/30 px-1">Final Bracket</p>
+            <VisualBracket bracket={bracket} players={players} sessionId={sessionId} />
           </div>
 
           {isHost && (
@@ -785,27 +954,19 @@ function TournamentView({ room, sessionId, name, onStartScan }: {
             </button>
           )}
         </div>
-        </div>
+      </div>
     );
   }
 
   // ── Running ────────────────────────────────────────────────────────────────
   if (!bracket) return null;
-  const isRoundRobin   = bracket.format === "roundrobin";
   const currentRound   = bracket.rounds[bracket.currentRound];
-  const visibleMatches = currentRound.filter(m => m.a || m.b);
   const roundLabel     = `Round ${bracket.currentRound + 1} of ${bracket.rounds.length}`;
 
-  // For round-robin, check if I have a bye this round
-  const myByeMatch = isRoundRobin
-    ? currentRound.find(m => (m.a === sessionId && m.b === null) || (m.b === sessionId && m.a === null))
-    : null;
-
-  // Standings sorted for display
-  const standingsSorted = isRoundRobin && bracket.standings
-    ? Object.entries(bracket.standings)
-        .sort(([, a], [, b]) => b.wins - a.wins || b.totalScore - a.totalScore)
-    : [];
+  // Check if I have a bye this round
+  const myByeMatch = currentRound.find(
+    m => (m.a === sessionId && m.b === null) || (m.b === sessionId && m.a === null)
+  ) ?? null;
 
   return (
     <div className="flex flex-col bg-black min-h-[100dvh] overflow-hidden">
@@ -813,28 +974,32 @@ function TournamentView({ room, sessionId, name, onStartScan }: {
         <button onClick={() => router.push("/")} className="font-mono text-[8px] tracking-[0.25em] uppercase text-white/28 hover:text-white/55 p-1">← Exit</button>
         <div className="flex flex-col items-center">
           <span className="font-mono text-[7px] tracking-[0.35em] uppercase text-white/25">
-            {isRoundRobin ? "Round-Robin" : "Tournament"} · {roundLabel}
+            🏆 Tournament · {roundLabel}
           </span>
           <CopyCodeRow code={room.code} />
         </div>
         <div className="w-10" />
       </div>
 
-      <div className="flex-1 flex flex-col px-4 pb-6 gap-3 overflow-y-auto">
-        {/* Bye notice for round-robin */}
+      <div className="flex-1 flex flex-col px-4 pb-6 gap-4 overflow-y-auto">
+
+        {/* Visual bracket */}
+        <div className="flex flex-col gap-2">
+          <p className="font-mono text-[7px] tracking-[0.35em] uppercase text-white/30 px-1">Bracket</p>
+          <VisualBracket bracket={bracket} players={players} sessionId={sessionId} />
+        </div>
+
+        {/* Bye notice */}
         {myByeMatch && (
           <div className="flex flex-col items-center gap-1.5 py-4 px-4 rounded-2xl bg-white/[0.03] ring-1 ring-white/10">
             <span className="text-2xl">😴</span>
             <p className="font-mono text-[8px] tracking-[0.25em] uppercase text-white/50 text-center">
-              Bye this round — spectating
-            </p>
-            <p className="font-mono text-[7px] tracking-widest text-white/25 text-center">
-              Watch the other matches below
+              Bye this round — waiting for next match
             </p>
           </div>
         )}
 
-        {/* My match prominent at top */}
+        {/* My match prominent */}
         {myMatch && (
           <div className="flex flex-col gap-1.5">
             <p className="font-mono text-[7px] tracking-[0.35em] uppercase text-cyan-400/60 px-1">Your Match</p>
@@ -848,73 +1013,14 @@ function TournamentView({ room, sessionId, name, onStartScan }: {
           </div>
         )}
 
-        {/* Other matches */}
-        {visibleMatches.some(m => m !== myMatch && !myByeMatch?.a && (m.a || m.b)) || visibleMatches.filter(m => m !== myMatch && (m.a || m.b)).length > 0 ? (
-          <div className="flex flex-col gap-1.5">
-            <p className="font-mono text-[7px] tracking-[0.35em] uppercase text-white/25 px-1">
-              {myByeMatch ? "Live Matches" : `${roundLabel} · ${visibleMatches.filter(m => m.a && m.b).length} matches`}
-            </p>
-            {visibleMatches.map((m, i) => {
-              if (m === myMatch) return null;
-              if (!m.a && !m.b) return null;
-              return (
-                <MatchCard
-                  key={i}
-                  match={m}
-                  players={players}
-                  sessionId={sessionId}
-                  round={bracket.currentRound}
-                  onReady={handleReady}
-                />
-              );
-            })}
-          </div>
-        ) : null}
-
-        {/* No active match notice (non-round-robin or edge case) */}
+        {/* No active match */}
         {!myMatch && !myByeMatch && (
-          <div className="flex flex-col items-center gap-2 py-8 text-center">
+          <div className="flex flex-col items-center gap-2 py-6 text-center">
             <p className="font-mono text-[8px] tracking-[0.25em] uppercase text-white/35">
               {players.find(p => p.sessionId === sessionId)?.phase === "done"
                 ? "Scan complete — waiting for round to finish"
                 : "Waiting…"}
             </p>
-          </div>
-        )}
-
-        {/* Standings table for round-robin */}
-        {isRoundRobin && standingsSorted.length > 0 && bracket.currentRound > 0 && (
-          <div className="flex flex-col gap-1.5 pt-1">
-            <p className="font-mono text-[7px] tracking-[0.35em] uppercase text-white/25 px-1">Standings</p>
-            {standingsSorted.map(([sid, s], i) => {
-              const pl = players.find(p => p.sessionId === sid);
-              const avgScore = s.wins + s.losses > 0 ? (s.totalScore / (s.wins + s.losses)) : null;
-              return (
-                <div key={sid} className={`flex items-center gap-3 px-3 py-2.5 rounded-xl ring-1
-                  ${sid === sessionId ? "bg-cyan-500/8 ring-cyan-400/20" : "bg-white/[0.025] ring-white/8"}`}>
-                  <span className="font-mono text-[8px] text-white/30 w-4 shrink-0">{i + 1}</span>
-                  <div className="w-7 h-7 rounded-full bg-white/10 ring-1 ring-white/18
-                    flex items-center justify-center font-mono text-[10px] font-bold text-white shrink-0">
-                    {pl?.name.charAt(0) ?? "?"}
-                  </div>
-                  <span className={`font-sans font-semibold text-[11px] tracking-[0.08em] uppercase flex-1 truncate
-                    ${sid === sessionId ? "text-cyan-300" : "text-white/70"}`}>
-                    {pl?.name ?? sid.slice(0, 6)}
-                  </span>
-                  <div className="flex items-center gap-2 shrink-0">
-                    <span className="font-mono text-[8px] text-emerald-400">{s.wins}W</span>
-                    <span className="font-mono text-[8px] text-white/20">·</span>
-                    <span className="font-mono text-[8px] text-rose-400/70">{s.losses}L</span>
-                    {avgScore !== null && (
-                      <>
-                        <span className="font-mono text-[8px] text-white/20">·</span>
-                        <span className="font-mono text-[8px] text-white/50">{avgScore.toFixed(1)}</span>
-                      </>
-                    )}
-                  </div>
-                </div>
-              );
-            })}
           </div>
         )}
       </div>
@@ -973,7 +1079,7 @@ function GroupScanView({ room, sessionId }: {
     videoRef, canvasRef, streamRef,
     retry, startScan, resetScan,
     scanProgress, samplesCollected, samplesSkipped,
-    rawScores, aiRating,
+    rawScores,
   } = useFaceLandmarker();
 
   const submitScore      = useMutation(api.players.submitScore);
@@ -1094,10 +1200,6 @@ function GroupScanView({ room, sessionId }: {
       capturedAt: Date.now(),
       rawTraitsJson:    rawScores ? JSON.stringify(rawScores.traits) : undefined,
       rawOverall:       rawScores?.overall,
-      aiTraitsJson:     aiRating ? JSON.stringify(aiRating.traits) : undefined,
-      aiOverall:        aiRating ? Object.values(aiRating.traits).reduce((s, v) => s + v, 0) / 6 : undefined,
-      aiDomLabel:       aiRating?.dom.label,
-      aiFlawLabel:      aiRating?.flaw.label,
       finalOverall:     scores.overall,
       finalElo:         scores.elo,
       finalSub:         scores.sub,
@@ -1108,7 +1210,7 @@ function GroupScanView({ room, sessionId }: {
       samplesCollected,
       samplesSkipped,
     }).catch(() => {});
-  }, [phase, scores, rawScores, aiRating, room._id, sessionId, submitScore, saveScanData, samplesCollected, samplesSkipped]);
+  }, [phase, scores, rawScores, room._id, sessionId, submitScore, saveScanData, samplesCollected, samplesSkipped]);
 
   const rankMedal = (i: number) => ["🥇","🥈","🥉"][i] ?? `#${i + 1}`;
 
@@ -1235,7 +1337,7 @@ function GroupScanView({ room, sessionId }: {
                     </span>
                     <span className={`mb-1.5 font-mono text-[8px] font-bold tracking-widest uppercase leading-none
                       ${phase === "analyzing" ? "text-amber-300 animate-pulse" : "text-white/35"}`}>
-                      {phase === "analyzing" ? "AI..." : "LIVE"}
+                      {phase === "analyzing" ? "CALC..." : "LIVE"}
                     </span>
                   </div>
                   <p className="font-mono text-[8px] text-emerald-300 truncate leading-tight">{scores.dom.label}</p>
@@ -1289,11 +1391,11 @@ function GroupScanView({ room, sessionId }: {
                   </svg>
                 )}
 
-                {/* AI pill for own tile */}
+                {/* Computing pill for own tile */}
                 {isMe && phase === "analyzing" && (
                   <div className="flex items-center gap-1 rounded-full bg-cyan-500/20 ring-1 ring-cyan-400/40 px-2 py-0.5">
                     <span className="w-1 h-1 rounded-full bg-cyan-400 animate-ping" />
-                    <span className="font-mono text-[6px] uppercase text-cyan-300">AI</span>
+                    <span className="font-mono text-[6px] uppercase text-cyan-300">Calc</span>
                   </div>
                 )}
 
