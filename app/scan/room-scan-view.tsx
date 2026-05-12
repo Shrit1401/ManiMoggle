@@ -557,8 +557,10 @@ export function RoomScanView({ roomId, sessionId, playerName, opponent, opponent
     rawScores, aiRating,
   } = useFaceLandmarker();
 
-  const oppIds = status === "ready" && opponentSessionId ? [opponentSessionId] : [];
-  const remoteStreams = useWebRTCGroup(roomId, sessionId, oppIds, streamRef);
+  // Start WebRTC immediately — don't wait for camera. Tracks are added once
+  // streamReady flips true, which triggers the hook's track sync effect.
+  const oppIds = opponentSessionId ? [opponentSessionId] : [];
+  const remoteStreams = useWebRTCGroup(roomId, sessionId, oppIds, streamRef, status === "ready");
   const opponentStream = opponentSessionId ? (remoteStreams[opponentSessionId] ?? null) : null;
 
   const submitScore   = useMutation(api.players.submitScore);

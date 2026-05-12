@@ -8,6 +8,8 @@
  * @module
  */
 
+import type * as calibration from "../calibration.js";
+import type * as crons from "../crons.js";
 import type * as players from "../players.js";
 import type * as rooms from "../rooms.js";
 import type * as webrtc from "../webrtc.js";
@@ -19,6 +21,8 @@ import type {
 } from "convex/server";
 
 declare const fullApi: ApiFromModules<{
+  calibration: typeof calibration;
+  crons: typeof crons;
   players: typeof players;
   rooms: typeof rooms;
   webrtc: typeof webrtc;

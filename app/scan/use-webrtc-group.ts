@@ -35,6 +35,7 @@ export function useWebRTCGroup(
   mySessionId: string,
   otherSessionIds: string[],
   streamRef: React.RefObject<MediaStream | null>,
+  streamReady: boolean = false,
 ): Record<string, MediaStream | null> {
   const [remoteStreams, setRemoteStreams] = useState<Record<string, MediaStream | null>>({});
   const pcsRef   = useRef<Record<string, PC>>({});
@@ -162,15 +163,16 @@ export function useWebRTCGroup(
     }
   }, [otherSessionIds, getPc]);
 
-  // ── Sync local tracks whenever peer list or stream changes ───────────────────
-  // (covers: stream arrives after peers, stream replaced on camera retry)
+  // ── Sync local tracks whenever peer list or stream becomes ready ─────────────
+  // streamReady flips true once camera is up — triggers track addition on any
+  // PCs that were created before the camera was available.
   const otherIdsKey = otherSessionIds.join(",");
   useEffect(() => {
     for (const { conn } of Object.values(pcsRef.current)) {
       addTracksToConn(conn);
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [otherIdsKey, addTracksToConn]);
+  }, [otherIdsKey, streamReady, addTracksToConn]);
 
 
   // ── Process inbound signals (perfect-negotiation pattern) ────────────────────
