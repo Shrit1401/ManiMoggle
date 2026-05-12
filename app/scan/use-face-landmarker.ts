@@ -353,7 +353,7 @@ export function useFaceLandmarker() {
                       const badges     = computeBadges(base.traits);
                       const bonusDelta = bonuses.reduce((s, b) => s + b.delta, 0);
                       const baseMean   = traitMean(base.traits);
-                      const finalOverall = Math.max(3, Math.min(10, baseMean * 1.3 + 0.5 + candy + bonusDelta));
+                      const finalOverall = Math.max(3, Math.min(10, baseMean + candy + bonusDelta));
                       const final: Scores = {
                         ...base,
                         overall: finalOverall,

@@ -285,7 +285,7 @@ export function computeBonuses(
   if (smile > 0) {
     bonuses.push({
       key: "smile", label: "Genuine Smile",
-      delta: clamp(0.15 + smile * 0.15, 0.15, 0.30),
+      delta: clamp(0.05 + smile * 0.07, 0.05, 0.12),
       traitKey: "harmony",
     });
   }
@@ -294,26 +294,26 @@ export function computeBonuses(
   if (eye > 0) {
     bonuses.push({
       key: "eye_contact", label: "Eye Contact",
-      delta: clamp(0.10 + eye * 0.10, 0.10, 0.20),
+      delta: clamp(0.04 + eye * 0.06, 0.04, 0.10),
       traitKey: "canthalTilt",
     });
   }
 
   if (traits.goldenRatio >= 8.0) {
-    bonuses.push({ key: "golden_ratio", label: "Phi Aligned", delta: 0.20, traitKey: "goldenRatio" });
+    bonuses.push({ key: "golden_ratio", label: "Phi Aligned", delta: 0.10, traitKey: "goldenRatio" });
   }
 
   const jawConf = opts.luma !== undefined ? lightingConfidence(opts.luma) : 1;
   if (traits.jawline >= 8.0 && jawConf >= 0.7) {
-    bonuses.push({ key: "sharp_jaw", label: "Sharp Mandible", delta: 0.20, traitKey: "jawline" });
+    bonuses.push({ key: "sharp_jaw", label: "Sharp Mandible", delta: 0.10, traitKey: "jawline" });
   }
 
   if (traits.symmetry >= 8.5) {
-    bonuses.push({ key: "mirror_symmetry", label: "Mirror Symmetry", delta: 0.15, traitKey: "symmetry" });
+    bonuses.push({ key: "mirror_symmetry", label: "Mirror Symmetry", delta: 0.08, traitKey: "symmetry" });
   }
 
   if (traits.harmony >= 8.0) {
-    bonuses.push({ key: "perfect_harmony", label: "Perfect Harmony", delta: 0.15, traitKey: "harmony" });
+    bonuses.push({ key: "perfect_harmony", label: "Perfect Harmony", delta: 0.08, traitKey: "harmony" });
   }
 
   // AI-sourced highlights — small bonus each, capped at 3
@@ -390,12 +390,12 @@ export function traitMean(traits: Record<TraitKey, number>): number {
 }
 
 export function overallFromMean(rawMean: number, candy = 0): number {
-  return clamp(rawMean * 1.3 + 0.5 + candy, 3, 10);
+  return clamp(rawMean + candy, 3, 10);
 }
 
-// Random candy boost: generous baseline (0.5–1.1)
+// Small random candy boost (0.10–0.40) — enough to feel rewarding but won't inflate into 9s
 export function generateCandy(): number {
-  return 0.5 + Math.random() * 0.6;
+  return 0.1 + Math.random() * 0.3;
 }
 
 // Per-frame jitter for live variation
