@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState, useCallback } from "react";
+import { useEffect, useRef, useState, useCallback, useMemo } from "react";
 import { useMutation } from "convex/react";
 import { api } from "../../convex/_generated/api";
 import type { Id } from "../../convex/_generated/dataModel";
@@ -30,6 +30,7 @@ interface Props {
   playerName: string;
   opponent: OpponentData | null;
   opponentSessionId?: string | null;
+  spectatorSessionIds?: string[];
   onDone: () => void;
 }
 
@@ -551,7 +552,7 @@ function TimerBar({ phase, scanProgress, myReady, oppReady }: {
 
 // ─── Main component ───────────────────────────────────────────────────────────
 
-export function RoomScanView({ roomId, sessionId, playerName, opponent, opponentSessionId, onDone }: Props) {
+export function RoomScanView({ roomId, sessionId, playerName, opponent, opponentSessionId, spectatorSessionIds = [], onDone }: Props) {
   const {
     status, phase, scores, error,
     videoRef, canvasRef, streamRef,
@@ -563,8 +564,14 @@ export function RoomScanView({ roomId, sessionId, playerName, opponent, opponent
 
   // Start WebRTC immediately — don't wait for camera. Tracks are added once
   // streamReady flips true, which triggers the hook's track sync effect.
-  const oppIds = opponentSessionId ? [opponentSessionId] : [];
-  const remoteStreams = useWebRTCGroup(roomId, sessionId, oppIds, streamRef, status === "ready");
+  // Include spectators so their PCs aren't pruned when they join to watch.
+  const spectatorKey = spectatorSessionIds.join(",");
+  const peerIds = useMemo(
+    () => [opponentSessionId, ...spectatorSessionIds].filter((id): id is string => !!id),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [opponentSessionId, spectatorKey],
+  );
+  const remoteStreams = useWebRTCGroup(roomId, sessionId, peerIds, streamRef, status === "ready");
   const opponentStream = opponentSessionId ? (remoteStreams[opponentSessionId] ?? null) : null;
 
   const submitScore   = useMutation(api.players.submitScore);

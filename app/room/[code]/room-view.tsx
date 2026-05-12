@@ -612,6 +612,131 @@ function VisualBracket({ bracket, players, sessionId }: {
   );
 }
 
+// ─── SpectateView — full-screen live video for eliminated players ─────────────
+
+function SpectateView({ room, sessionId, onExit }: {
+  room: RoomData; sessionId: string; onExit: () => void;
+}) {
+  const bracket: Bracket | null = room.tournamentBracket ? JSON.parse(room.tournamentBracket) : null;
+  const players = room.players;
+
+  // Compute active fighters in the current round
+  const currentRound = bracket?.rounds[bracket.currentRound] ?? [];
+  const activeMatches = currentRound.filter(m => m.winner === null && m.a !== null && m.b !== null);
+  const activeFighterIds = activeMatches.flatMap(m => [m.a!, m.b!]);
+
+  const emptyStreamRef = useRef<MediaStream | null>(null);
+  const remoteStreams  = useWebRTCGroup(
+    room._id as Id<"rooms">, sessionId, activeFighterIds, emptyStreamRef, true,
+  );
+
+  // Auto-exit when the local player gains a match this round (e.g. next round started)
+  const myMatch = currentRound.find(
+    m => (m.a === sessionId || m.b === sessionId) && m.winner === null && m.b !== null,
+  );
+  useEffect(() => { if (myMatch) onExit(); }, [myMatch, onExit]);
+
+  const roundLabel = bracket
+    ? `Round ${bracket.currentRound + 1} of ${bracket.rounds.length}`
+    : "";
+
+  return (
+    <div className="flex flex-col bg-black min-h-[100dvh] overflow-hidden">
+      {/* Header */}
+      <div className="flex items-center justify-between px-4 pt-safe pt-4 pb-3 shrink-0 border-b border-white/[0.05] z-10">
+        <button onClick={onExit}
+          className="font-mono text-[8px] tracking-[0.25em] uppercase text-white/40 hover:text-white/70 transition-colors p-1">
+          ← Back
+        </button>
+        <div className="flex items-center gap-2">
+          {activeFighterIds.length > 0 && (
+            <span className="w-1.5 h-1.5 rounded-full bg-rose-400 animate-pulse shrink-0" />
+          )}
+          <span className="font-mono text-[7px] tracking-[0.4em] uppercase text-white/40">
+            {activeFighterIds.length > 0 ? `Live · ${roundLabel}` : roundLabel}
+          </span>
+        </div>
+        <div className="w-12" />
+      </div>
+
+      {/* Content */}
+      {activeMatches.length === 0 ? (
+        <div className="flex-1 flex flex-col items-center justify-center gap-3 px-4">
+          <span className="text-3xl opacity-40">👁</span>
+          <p className="font-mono text-[8px] tracking-[0.3em] uppercase text-white/30 text-center">
+            No live matches right now
+          </p>
+          <p className="font-mono text-[7px] tracking-wider text-white/20 text-center">
+            Waiting for next round to begin…
+          </p>
+        </div>
+      ) : (
+        <div className="flex-1 min-h-0 flex flex-col gap-1 p-1 overflow-y-auto">
+          {activeMatches.map((match, idx) => {
+            const fighters = [match.a!, match.b!];
+            return (
+              <div key={idx} className="flex gap-1" style={{ flex: "1 0 0", minHeight: 0 }}>
+                {fighters.map(sid => {
+                  const player = players.find(p => p.sessionId === sid);
+                  const stream = remoteStreams[sid] ?? null;
+                  const snapshot = player?.snapshot;
+                  const isScanning = player?.phase === "scanning";
+                  const isDone = player?.phase === "done";
+                  const liveScore = player?.liveScore;
+                  const finalScore = player?.overall;
+                  return (
+                    <div key={sid} className="relative flex-1 rounded-2xl overflow-hidden bg-neutral-950 ring-1 ring-white/8"
+                      style={{ minHeight: 200 }}>
+                      {/* Video / snapshot */}
+                      <RemoteVideo stream={stream} snapshot={snapshot} name={player?.name ?? "?"} />
+                      {/* Gradient */}
+                      <div className="absolute inset-x-0 bottom-0 h-2/3 bg-gradient-to-t from-black/90 via-black/30 to-transparent pointer-events-none" />
+                      {/* Score overlay */}
+                      {isScanning && liveScore !== undefined ? (
+                        <div className="absolute bottom-0 inset-x-0 p-3">
+                          <div className="flex items-end gap-1.5">
+                            <span className="font-sans font-black text-[40px] tabular-nums leading-none text-white drop-shadow-lg">
+                              {liveScore.toFixed(1)}
+                            </span>
+                            <span className="mb-1.5 font-mono text-[7px] font-bold tracking-widest uppercase text-cyan-400">LIVE</span>
+                          </div>
+                        </div>
+                      ) : isDone && finalScore !== undefined ? (
+                        <div className="absolute bottom-0 inset-x-0 p-3">
+                          <div className="flex items-end gap-1.5">
+                            <span className="font-sans font-black text-[40px] tabular-nums leading-none text-white drop-shadow-lg">
+                              {finalScore.toFixed(1)}
+                            </span>
+                            <span className="mb-1.5 font-mono text-[7px] font-bold tracking-widest uppercase text-emerald-400">DONE</span>
+                          </div>
+                          <p className="font-mono text-[7px] text-emerald-300 truncate">{player?.domLabel}</p>
+                        </div>
+                      ) : null}
+                      {/* Name + scanning indicator */}
+                      <div className="absolute top-2 inset-x-2 flex items-start justify-between">
+                        <span className="font-mono text-[7.5px] font-bold tracking-wider uppercase
+                          px-2 py-0.5 rounded-full bg-black/50 backdrop-blur-sm text-white/75">
+                          {player?.name ?? "?"}
+                        </span>
+                        {isScanning && (
+                          <div className="flex items-center gap-1 rounded-full bg-black/50 px-1.5 py-0.5">
+                            <span className="w-1 h-1 rounded-full bg-cyan-400 animate-pulse" />
+                            <span className="font-mono text-[5.5px] uppercase text-cyan-400">SCAN</span>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function MatchCard({
   match, players, sessionId, round, onReady,
 }: {
@@ -740,6 +865,7 @@ function TournamentView({ room, sessionId, name, onStartScan }: {
   const setPhaseMutation    = useMutation(api.players.setPhase);
   const advanceCalled       = useRef(false);
   const hasNavigatedRef     = useRef(false);
+  const [spectating,        setSpectating] = useState(false);
 
   const players  = room.players;
   const isHost   = room.hostSessionId === sessionId;
@@ -798,6 +924,11 @@ function TournamentView({ room, sessionId, name, onStartScan }: {
   const handleReady = () => {
     void setPhaseMutation({ roomId: room._id as Id<"rooms">, sessionId, phase: "scanning" });
   };
+
+  // ── Spectate ──────────────────────────────────────────────────────────────
+  if (spectating && status === "running" && bracket) {
+    return <SpectateView room={room} sessionId={sessionId} onExit={() => setSpectating(false)} />;
+  }
 
   // ── Lobby ──────────────────────────────────────────────────────────────────
   if (status === "lobby") {
@@ -1020,16 +1151,39 @@ function TournamentView({ room, sessionId, name, onStartScan }: {
           </div>
         )}
 
-        {/* No active match */}
-        {!myMatch && !myByeMatch && (
-          <div className="flex flex-col items-center gap-2 py-6 text-center">
-            <p className="font-mono text-[8px] tracking-[0.25em] uppercase text-white/35">
-              {players.find(p => p.sessionId === sessionId)?.phase === "done"
-                ? "Scan complete — waiting for round to finish"
-                : "Waiting…"}
-            </p>
-          </div>
-        )}
+        {/* No active match — spectate panel (also shown for bye players so they can watch) */}
+        {!myMatch && (() => {
+          const liveMatchCount = currentRound.filter(
+            m => m.winner === null && m.a !== null && m.b !== null,
+          ).length;
+          const myPhaseNow = players.find(p => p.sessionId === sessionId)?.phase;
+          return (
+            <div className="flex flex-col items-center gap-3 py-6 px-4 rounded-2xl bg-white/[0.03] ring-1 ring-white/8 text-center">
+              <span className="text-2xl">👁</span>
+              <p className="font-mono text-[8px] tracking-[0.25em] uppercase text-white/45">
+                {myPhaseNow === "done" ? "Scan complete" : "Waiting this round"}
+              </p>
+              {liveMatchCount > 0 ? (
+                <>
+                  <p className="font-mono text-[7px] tracking-wider text-white/28">
+                    {liveMatchCount} match{liveMatchCount > 1 ? "es" : ""} in progress
+                  </p>
+                  <button
+                    onClick={() => setSpectating(true)}
+                    style={{ minHeight: 44 }}
+                    className="w-full rounded-full bg-cyan-500/15 hover:bg-cyan-500/28 ring-1 ring-cyan-400/35
+                      py-2.5 font-mono text-[9px] tracking-[0.22em] uppercase text-cyan-300 transition-all active:scale-[0.97]">
+                    Spectate live matches
+                  </button>
+                </>
+              ) : (
+                <p className="font-mono text-[7px] tracking-wider text-white/25">
+                  Waiting for next round…
+                </p>
+              )}
+            </div>
+          );
+        })()}
       </div>
     </div>
   );
@@ -1565,6 +1719,11 @@ export function RoomView({ code }: { code: string }) {
   // ── Scanning mode ───────────────────────────────────────────────────────────
   if (scanning) {
     const oppData = opponentId ? opponentData(room.players, opponentId) : null;
+    // All other room players are potential spectators — include them so their
+    // WebRTC PCs aren't pruned when they join to watch.
+    const spectatorSessionIds = room.players
+      .map(p => p.sessionId)
+      .filter(sid => sid !== sessionId && sid !== opponentId);
     return (
       <RoomScanView
         roomId={room._id as Id<"rooms">}
@@ -1572,6 +1731,7 @@ export function RoomView({ code }: { code: string }) {
         playerName={name}
         opponent={oppData}
         opponentSessionId={opponentId}
+        spectatorSessionIds={spectatorSessionIds}
         onDone={() => {
           setScanning(false);
           setOpponentId(null);
