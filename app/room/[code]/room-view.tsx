@@ -701,7 +701,14 @@ function MatchCard({
         )}
       </div>
       {isMe && !settled && !isBye && (
-        iAmReady ? (
+        myPhase === "done" ? (
+          <div className="flex items-center gap-1.5 justify-center py-2.5">
+            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 shrink-0" />
+            <span className="font-mono text-[8px] tracking-widest uppercase text-emerald-400">
+              Scan done — waiting for result…
+            </span>
+          </div>
+        ) : iAmReady ? (
           <div className="flex items-center gap-1.5 justify-center py-2.5">
             <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-ping shrink-0" />
             <span className="font-mono text-[8px] tracking-widest uppercase text-cyan-400">
