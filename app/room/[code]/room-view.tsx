@@ -642,18 +642,49 @@ function TournamentView({ room, sessionId, name, onStartScan }: {
           <div className="w-10" />
         </div>
 
+        {/* ── Confetti ── */}
+        <div className="fixed inset-0 pointer-events-none overflow-hidden z-50">
+          {Array.from({ length: 36 }, (_, i) => (
+            <div key={i} className="absolute" style={{
+              left: `${((i * 37.3 + Math.sin(i * 2.1) * 28) % 100 + 100) % 100}%`,
+              top: "-12px",
+              width:  `${8 + (i % 4) * 3}px`,
+              height: `${8 + (i % 4) * 3}px`,
+              background: ['#22d3ee','#f59e0b','#a78bfa','#34d399','#f87171','#fcd34d','#fb7185'][i % 7],
+              borderRadius: i % 3 === 0 ? '50%' : '3px',
+              transform: `rotate(${(i * 47) % 360}deg)`,
+              animation: `confetti-fall ${2.4 + (i % 5) * 0.35}s ease-in ${(i * 0.07) % 2.4}s both`,
+            }} />
+          ))}
+        </div>
+
         <div className="flex-1 flex flex-col items-center px-4 pb-6 gap-5 overflow-y-auto">
-          <div className="flex flex-col items-center gap-3 py-6">
-            <span className="text-5xl">🏆</span>
-            <p className="font-mono text-[7px] tracking-[0.45em] uppercase text-amber-400/60">Champion</p>
-            <p className="font-sans font-black text-[32px] tracking-[0.12em] uppercase text-amber-400">
-              {champion?.name ?? "—"}
-            </p>
-            {isRR && bracket.standings?.[bracket.champion ?? ""] && (
-              <p className="font-mono text-[9px] tracking-[0.2em] text-amber-300/70">
-                {bracket.standings[bracket.champion!].wins}W · {bracket.standings[bracket.champion!].losses}L
+
+          {/* ── Champion hero ── */}
+          <div className="relative flex flex-col items-center gap-4 pt-8 pb-4 w-full">
+            <div className="absolute inset-x-0 top-0 h-48 bg-gradient-to-b from-amber-500/10 to-transparent pointer-events-none" />
+            <div className="relative">
+              <div className="absolute inset-0 -m-6 rounded-full bg-amber-400/20 blur-2xl animate-pulse" />
+              <span className="relative text-6xl" style={{ filter: "drop-shadow(0 0 24px rgba(251,191,36,0.7))" }}>🏆</span>
+            </div>
+            <div className="flex flex-col items-center gap-2">
+              <p className="font-mono text-[7px] tracking-[0.55em] uppercase text-amber-400/70">Champion</p>
+              <p className="font-sans font-black text-[38px] tracking-[0.08em] uppercase text-amber-400 animate-score-reveal"
+                style={{ textShadow: "0 0 30px rgba(251,191,36,0.55), 0 0 70px rgba(251,191,36,0.25)" }}>
+                {champion?.name ?? "—"}
               </p>
-            )}
+              {champion?.overall && (
+                <div className="flex items-baseline gap-2 bg-amber-400/10 ring-1 ring-amber-400/30 rounded-full px-4 py-1.5">
+                  <span className="font-mono font-black text-[22px] text-white tabular-nums">{champion.overall.toFixed(1)}</span>
+                  <span className="font-mono text-[8px] text-amber-300/70 uppercase tracking-widest">PSL</span>
+                </div>
+              )}
+              {isRR && bracket.standings?.[bracket.champion ?? ""] && (
+                <p className="font-mono text-[9px] tracking-[0.2em] text-amber-300/60 mt-1">
+                  {bracket.standings[bracket.champion!].wins}W · {bracket.standings[bracket.champion!].losses}L
+                </p>
+              )}
+            </div>
           </div>
 
           {/* Round-robin final standings */}
@@ -708,17 +739,35 @@ function TournamentView({ room, sessionId, name, onStartScan }: {
                   {realMatches.map((m, mi) => {
                     const aP = players.find(p => p.sessionId === m.a);
                     const bP = players.find(p => p.sessionId === m.b);
+                    const aWon = m.winner === m.a;
+                    const bWon = m.winner === m.b;
                     return (
-                      <div key={mi} className="flex items-center gap-2 px-3 py-2 rounded-xl bg-white/[0.025] ring-1 ring-white/8">
-                        <span className={`font-mono text-[9px] font-bold flex-1 uppercase
-                          ${m.winner === m.a ? "text-amber-400" : "text-white/40"}`}>
-                          {aP?.name ?? "—"}{m.aScore !== null && ` · ${m.aScore.toFixed(1)}`}
-                        </span>
-                        <span className="font-mono text-[7px] text-white/20">VS</span>
-                        <span className={`font-mono text-[9px] font-bold flex-1 text-right uppercase
-                          ${m.winner === m.b ? "text-amber-400" : "text-white/40"}`}>
-                          {bP?.name ?? "BYE"}{m.bScore !== null && ` · ${m.bScore.toFixed(1)}`}
-                        </span>
+                      <div key={mi} className="flex items-center gap-3 px-4 py-3 rounded-2xl bg-white/[0.03] ring-1 ring-white/8">
+                        <div className="flex-1 flex flex-col gap-0.5">
+                          <span className={`font-sans font-bold text-[12px] uppercase truncate
+                            ${aWon ? "text-amber-400" : "text-white/50"}`}>
+                            {aWon && <span className="mr-1">👑</span>}{aP?.name ?? "—"}
+                          </span>
+                          {m.aScore !== null && (
+                            <span className={`font-mono font-black text-[18px] tabular-nums leading-none
+                              ${aWon ? "text-white" : "text-white/30"}`}>
+                              {m.aScore.toFixed(1)}
+                            </span>
+                          )}
+                        </div>
+                        <span className="font-mono text-[7px] text-white/15 shrink-0">VS</span>
+                        <div className="flex-1 flex flex-col items-end gap-0.5">
+                          <span className={`font-sans font-bold text-[12px] uppercase truncate
+                            ${bWon ? "text-amber-400" : "text-white/50"}`}>
+                            {bP?.name ?? "BYE"}{bWon && <span className="ml-1">👑</span>}
+                          </span>
+                          {m.bScore !== null && (
+                            <span className={`font-mono font-black text-[18px] tabular-nums leading-none
+                              ${bWon ? "text-white" : "text-white/30"}`}>
+                              {m.bScore.toFixed(1)}
+                            </span>
+                          )}
+                        </div>
                       </div>
                     );
                   })}
@@ -941,11 +990,8 @@ function GroupScanView({ room, sessionId }: {
   const [countdown, setCountdown]       = useState<number | null>(null);
 
   const players  = room.players;
-  // Only start WebRTC connections once camera is ready (stream must exist to add tracks)
-  const otherSessionIds = status === "ready"
-    ? players.filter(p => p.sessionId !== sessionId).map(p => p.sessionId)
-    : [];
-  const remoteStreams = useWebRTCGroup(room._id as Id<"rooms">, sessionId, otherSessionIds, streamRef);
+  const otherSessionIds = players.filter(p => p.sessionId !== sessionId).map(p => p.sessionId);
+  const remoteStreams = useWebRTCGroup(room._id as Id<"rooms">, sessionId, otherSessionIds, streamRef, status === "ready");
   const isHost   = room.hostSessionId === sessionId;
   const started  = !!room.groupStarted;
   const allDone  = players.length >= 1 && players.every(p => p.phase === "done");

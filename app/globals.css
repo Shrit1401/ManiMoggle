@@ -223,9 +223,9 @@ html, body {
 
 /* ── Confetti piece ── */
 @keyframes confetti-fall {
-  0%   { transform: translateY(-20px) rotate(0deg) scale(1);   opacity: 1; }
-  80%  { opacity: 0.8; }
-  100% { transform: translateY(120px) rotate(720deg) scale(0.5); opacity: 0; }
+  0%   { transform: translateY(-20px) rotate(0deg) scale(1);    opacity: 1; }
+  80%  { opacity: 0.9; }
+  100% { transform: translateY(108vh) rotate(720deg) scale(0.4); opacity: 0; }
 }
 
 /* ── Tier burst radial glow ── */

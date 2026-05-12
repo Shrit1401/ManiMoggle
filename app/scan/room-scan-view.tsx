@@ -360,10 +360,10 @@ function OpponentPanel({ opponent, stream }: { opponent: OpponentData | null; st
 
   if (!opponent) {
     return (
-      <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-neutral-950">
-        <div className="w-14 h-14 rounded-full border-2 border-dashed border-white/12
-          flex items-center justify-center text-white/15 text-2xl">?</div>
-        <p className="font-mono text-[8px] tracking-[0.28em] uppercase text-white/25">No opponent</p>
+      <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-neutral-900">
+        <div className="w-14 h-14 rounded-full border-2 border-dashed border-white/25
+          flex items-center justify-center text-white/40 text-2xl">?</div>
+        <p className="font-mono text-[8px] tracking-[0.28em] uppercase text-white/45">Waiting for opponent…</p>
       </div>
     );
   }
@@ -382,7 +382,7 @@ function OpponentPanel({ opponent, stream }: { opponent: OpponentData | null; st
   } : null;
 
   return (
-    <div className="absolute inset-0 bg-neutral-950">
+    <div className="absolute inset-0 bg-neutral-900">
       {stream && (
         <video ref={videoRef} autoPlay playsInline
           className="absolute inset-0 w-full h-full object-cover"
@@ -390,48 +390,52 @@ function OpponentPanel({ opponent, stream }: { opponent: OpponentData | null; st
         />
       )}
       {!stream && (
-        <div className="absolute inset-0 opacity-[0.03]"
-          style={{ backgroundImage: "repeating-linear-gradient(0deg,#fff 0px,#fff 1px,transparent 1px,transparent 40px),repeating-linear-gradient(90deg,#fff 0px,#fff 1px,transparent 1px,transparent 40px)" }} />
+        <div className="absolute inset-0"
+          style={{ backgroundImage: "repeating-linear-gradient(0deg,#fff 0px,#fff 1px,transparent 1px,transparent 40px),repeating-linear-gradient(90deg,#fff 0px,#fff 1px,transparent 1px,transparent 40px)", opacity: 0.025 }} />
       )}
       <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-transparent to-black/30 pointer-events-none" />
       {done ? (
         <ScoreOverlay scores={scores} name={opponent.name} label="OPPONENT" />
       ) : scanning ? (
         <div className="absolute inset-0 pointer-events-none">
-          <div className="absolute top-3 right-3 flex items-center gap-1.5 glass rounded-full px-2.5 py-1 ring-1 ring-cyan-400/30">
+          <div className="absolute top-3 right-3 flex items-center gap-1.5 glass rounded-full px-2.5 py-1 ring-1 ring-cyan-400/50">
             <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-ping shrink-0" />
             <span className="font-mono text-[7px] tracking-widest uppercase text-cyan-400">Scanning</span>
           </div>
           {opponent.liveScore !== undefined && (
             <div className="absolute bottom-3 left-3">
               <div className="flex items-end gap-1.5">
-                <span className="font-sans font-black tabular-nums leading-none text-white/85 drop-shadow-lg"
+                <span className="font-sans font-black tabular-nums leading-none text-white drop-shadow-lg"
                   style={{ fontSize: 52 }}>
                   {opponent.liveScore.toFixed(1)}
                 </span>
-                <span className="mb-1 font-mono text-[8px] text-cyan-300/80 uppercase tracking-widest">LIVE</span>
+                <span className="mb-1 font-mono text-[8px] text-cyan-300 uppercase tracking-widest">LIVE</span>
               </div>
             </div>
           )}
           {!stream && (
             <div className="absolute inset-0 flex flex-col items-center justify-center gap-3">
-              <div className="w-16 h-16 rounded-full bg-cyan-500/8 ring-2 ring-cyan-400/25
-                flex items-center justify-center font-mono text-2xl font-bold text-cyan-300/70">
-                {opponent.name.charAt(0)}
+              <div className="w-20 h-20 rounded-full bg-white/10 ring-2 ring-white/30
+                flex items-center justify-center font-sans text-3xl font-black text-white">
+                {opponent.name.charAt(0).toUpperCase()}
               </div>
-              <p className="font-sans font-bold text-[13px] tracking-[0.08em] uppercase text-white/55">{opponent.name}</p>
+              <p className="font-sans font-bold text-[15px] tracking-[0.08em] uppercase text-white/85">{opponent.name}</p>
+              <div className="flex items-center gap-1.5 bg-cyan-500/15 ring-1 ring-cyan-400/40 rounded-full px-3 py-1">
+                <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-ping" />
+                <span className="font-mono text-[7px] text-cyan-300 tracking-widest uppercase">Connecting video…</span>
+              </div>
             </div>
           )}
         </div>
       ) : (
         !stream && (
           <div className="absolute inset-0 flex flex-col items-center justify-center gap-3">
-            <div className="w-16 h-16 rounded-full bg-white/[0.04] ring-2 ring-white/12
-              flex items-center justify-center font-mono text-2xl font-bold text-white/40">
-              {opponent.name.charAt(0)}
+            <div className="w-20 h-20 rounded-full bg-white/10 ring-2 ring-white/25
+              flex items-center justify-center font-sans text-3xl font-black text-white/80">
+              {opponent.name.charAt(0).toUpperCase()}
             </div>
-            <p className="font-sans font-bold text-[13px] tracking-[0.08em] uppercase text-white/40">{opponent.name}</p>
-            <span className="font-mono text-[8px] tracking-widest uppercase text-white/20">Ready</span>
+            <p className="font-sans font-bold text-[15px] tracking-[0.08em] uppercase text-white/75">{opponent.name}</p>
+            <span className="font-mono text-[8px] tracking-widest uppercase text-white/40">Ready</span>
           </div>
         )
       )}

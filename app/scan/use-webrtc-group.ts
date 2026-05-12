@@ -49,10 +49,12 @@ export function useWebRTCGroup(
 
   const addTracksToConn = useCallback((conn: RTCPeerConnection) => {
     const stream = streamRef.current;
-    if (!stream) return;
+    if (!stream || conn.signalingState === "closed") return;
     const existingIds = new Set(conn.getSenders().map(s => s.track?.id).filter(Boolean));
     stream.getTracks().forEach(track => {
-      if (!existingIds.has(track.id)) conn.addTrack(track, stream);
+      if (!existingIds.has(track.id)) {
+        try { conn.addTrack(track, stream); } catch { /* connection closed between check and call */ }
+      }
     });
   }, [streamRef]);
 
@@ -140,7 +142,12 @@ export function useWebRTCGroup(
   }, [roomId, mySessionId, addTracksToConn, sendSignal]);
 
   const getPc = useCallback((peerId: string): PC => {
-    return pcsRef.current[peerId] ?? createPcEntry(peerId);
+    const existing = pcsRef.current[peerId];
+    // Return the existing PC only if it is still usable. A closed PC (left over
+    // from React strict-mode's artificial unmount/remount, or from a failed
+    // reconnect) must be replaced — attempting addTrack on a closed PC throws.
+    if (existing && existing.conn.signalingState !== "closed") return existing;
+    return createPcEntry(peerId);
   }, [createPcEntry]);
 
   // ── Sync peer list ───────────────────────────────────────────────────────────
@@ -247,6 +254,9 @@ export function useWebRTCGroup(
         if (entry.reconnectTimer) clearTimeout(entry.reconnectTimer);
         entry.conn.close();
       }
+      // Clear the map so that React strict-mode's artificial remount cycle
+      // starts with an empty slate — stale closed PCs must not be reused.
+      pcsRef.current = {};
     };
   }, []);
 
