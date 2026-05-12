@@ -1,6 +1,8 @@
 "use client";
 
 import { useRef, useState, useEffect, useCallback } from "react";
+import { useQuery } from "convex/react";
+import { api } from "../../convex/_generated/api";
 import type { FaceLandmarker } from "@mediapipe/tasks-vision";
 import {
   scoreFace, smoothScores, aggregateMedian, traitsToVector,
@@ -85,10 +87,24 @@ export function useFaceLandmarker() {
   const skippedRef       = useRef(0);
   const lastLumaRef      = useRef<number>(128);
 
+  // AI pre-fetch at t=10s so it's ready by the time scanning ends at t=15s
+  const aiPrefetchRef      = useRef<Promise<AIRating | null> | null>(null);
+  const aiPrefetchFiredRef = useRef(false);
+
+  // Calibration offsets (mean aiTrait − rawTrait, learned from historical data)
+  const calibrationRef     = useRef<Record<string, number> | null>(null);
+
   // Bonus detection tracking
   const firedBonusKeysRef  = useRef<Set<string>>(new Set());
   const maxSmileRef        = useRef(0);
   const maxEyeRef          = useRef(0);
+
+  const calibrationData = useQuery(api.calibration.getCalibration);
+  useEffect(() => {
+    if (!calibrationData) return;
+    try { calibrationRef.current = JSON.parse(calibrationData.traitOffsets) as Record<string, number>; }
+    catch { /* malformed row — ignore */ }
+  }, [calibrationData]);
 
   const [status,           setStatus]           = useState<Status>("idle");
   const [phase,            setPhase]            = useState<Phase>("live");
@@ -108,9 +124,11 @@ export function useFaceLandmarker() {
 
   const startScan = useCallback(() => {
     if (phaseRef.current !== "live") return;
-    samplesRef.current       = [];
-    skippedRef.current       = 0;
-    scanStartRef.current     = performance.now();
+    samplesRef.current        = [];
+    skippedRef.current        = 0;
+    scanStartRef.current      = performance.now();
+    aiPrefetchRef.current     = null;
+    aiPrefetchFiredRef.current = false;
     firedBonusKeysRef.current = new Set();
     maxSmileRef.current      = 0;
     maxEyeRef.current        = 0;
@@ -123,12 +141,14 @@ export function useFaceLandmarker() {
   }, []);
 
   const resetScan = useCallback(() => {
-    phaseRef.current         = "live";
-    samplesRef.current       = [];
-    skippedRef.current       = 0;
-    smoothedRef.current      = null;
-    rawScoresRef.current     = null;
-    aiRatingRef.current      = null;
+    phaseRef.current          = "live";
+    samplesRef.current        = [];
+    skippedRef.current        = 0;
+    smoothedRef.current       = null;
+    rawScoresRef.current      = null;
+    aiRatingRef.current       = null;
+    aiPrefetchRef.current     = null;
+    aiPrefetchFiredRef.current = false;
     firedBonusKeysRef.current = new Set();
     maxSmileRef.current      = 0;
     maxEyeRef.current        = 0;
@@ -143,12 +163,14 @@ export function useFaceLandmarker() {
   const start = useCallback(async () => {
     stopEverything();
     setError(null);
-    phaseRef.current         = "live";
-    samplesRef.current       = [];
-    skippedRef.current       = 0;
-    smoothedRef.current      = null;
-    rawScoresRef.current     = null;
-    aiRatingRef.current      = null;
+    phaseRef.current          = "live";
+    samplesRef.current        = [];
+    skippedRef.current        = 0;
+    smoothedRef.current       = null;
+    rawScoresRef.current      = null;
+    aiRatingRef.current       = null;
+    aiPrefetchRef.current     = null;
+    aiPrefetchFiredRef.current = false;
     firedBonusKeysRef.current = new Set();
     maxSmileRef.current      = 0;
     maxEyeRef.current        = 0;
@@ -337,6 +359,13 @@ export function useFaceLandmarker() {
                   setLiveBonuses(prev => [...prev, { key: "perfect_harmony", label: "Perfect Harmony", delta: 0.15, traitKey: "harmony" }]);
                 }
 
+                // ── Pre-fetch Gemini at t=10s (5s head-start before scan ends) ──
+                if (elapsed >= 10_000 && !aiPrefetchFiredRef.current) {
+                  aiPrefetchFiredRef.current = true;
+                  const earlyFrame = captureVideoFrame(v);
+                  if (earlyFrame) aiPrefetchRef.current = rateFromImage(earlyFrame);
+                }
+
                 // ── Transition to analyzing ────────────────────────────────────
                 if (elapsed >= SCAN_DURATION_MS) {
                   phaseRef.current = "analyzing";
@@ -358,15 +387,31 @@ export function useFaceLandmarker() {
                     let base: Scores | null = null;
                     let aiHighlights: string[] = [];
 
-                    if (frame) {
-                      const ai = await rateFromImage(frame);
-                      if (ai) {
-                        aiRatingRef.current = ai;
-                        base = aiToScores(ai);
-                        aiHighlights = ai.highlights ?? [];
+                    // Use pre-fetched promise when available (started at t=10s)
+                    const aiResult = await (
+                      aiPrefetchRef.current ??
+                      (frame ? rateFromImage(frame) : Promise.resolve(null))
+                    );
+                    if (aiResult) {
+                      aiRatingRef.current = aiResult;
+                      base = aiToScores(aiResult);
+                      aiHighlights = aiResult.highlights ?? [];
+                    }
+
+                    if (!base) {
+                      // Apply per-trait calibration offsets (learned from historical data)
+                      // to correct systematic bias in the landmark-geometry scorer.
+                      const offsets = calibrationRef.current;
+                      if (fallback && offsets) {
+                        const corrected = { ...fallback.traits } as Record<TraitKey, number>;
+                        for (const [k, delta] of Object.entries(offsets)) {
+                          corrected[k as TraitKey] = Math.max(1, Math.min(10, corrected[k as TraitKey] + delta));
+                        }
+                        base = { ...fallback, traits: corrected as Scores["traits"] };
+                      } else {
+                        base = fallback;
                       }
                     }
-                    if (!base) base = fallback;
 
                     if (base && mountedRef.current) {
                       const candy   = generateCandy();

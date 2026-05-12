@@ -58,6 +58,12 @@ export default defineSchema({
     .index("by_session", ["sessionId"])
     .index("by_room", ["roomId"]),
 
+  calibration: defineTable({
+    computedAt:   v.number(),
+    sampleCount:  v.number(),
+    traitOffsets: v.string(), // JSON: Record<TraitKey, number> — mean(aiTrait - rawTrait)
+  }).index("by_computed", ["computedAt"]),
+
   players: defineTable({
     roomId: v.id("rooms"),
     sessionId: v.string(),
