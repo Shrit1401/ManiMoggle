@@ -8,6 +8,20 @@ export type TraitKey =
   | "skin"          // Skin quality, texture, and lighting
   | "goldenRatio";  // Closeness to divine proportion (φ = 1.618)
 
+export type BonusEvent = {
+  key:      string;
+  label:    string;
+  delta:    number;
+  traitKey: TraitKey;
+};
+
+export type Badge = {
+  id:       string;
+  label:    string;
+  color:    string;
+  traitKey: TraitKey;
+};
+
 export type Scores = {
   overall: number;
   dom:  { label: string; value: number };
@@ -18,6 +32,8 @@ export type Scores = {
   tier: { code: "BCK" | "NRM" | "HTN" | "CHS" | "MOG"; starColor: string };
   level: string;
   traits: Record<TraitKey, number>;
+  bonuses?: BonusEvent[];
+  badges?:  Badge[];
 };
 
 type LM = { x: number; y: number; z: number };
@@ -56,15 +72,21 @@ export function rollCorrect(lm: LM[]): LM[] {
   }));
 }
 
+// ─── Lighting confidence (0–1): how trustworthy are landmark-based measurements ─
+
+export function lightingConfidence(luma: number): number {
+  if (luma >= 90 && luma <= 200) return 1;
+  if (luma < 90)  return Math.max(0, luma / 90);
+  return Math.max(0, (245 - luma) / 45);
+}
+
 // ─── 1. Canthal Tilt — Eye Area ───────────────────────────────────────────────
-// Angle from inner to outer eye corner. Positive tilt (outer > inner) = hunter eyes.
 
 function canthalTiltScore(lm: LM[]): number {
   const fw = dist(lm[234], lm[454]);
   if (fw === 0) return 4.5;
   const leftTilt  = (lm[133].y - lm[33].y)  / fw;
   const rightTilt = (lm[362].y - lm[263].y) / fw;
-  // Neutral/flat face ≈ 4.5 baseline; positive tilt pushes high
   return clamp(4.5 + ((leftTilt + rightTilt) / 2) * 230, 1, 10);
 }
 
@@ -80,30 +102,28 @@ function symmetryScore(lm: LM[]): number {
   return clamp(10 - (dev / pairs.length) * 260, 1, 10);
 }
 
-// ─── 3. Jawline ───────────────────────────────────────────────────────────────
+// ─── 3. Jawline — blended toward neutral floor in poor lighting ───────────────
 
-function jawlineScore(lm: LM[]): number {
+function jawlineScore(lm: LM[], luma?: number): number {
   const l = angleDeg(lm[234], lm[172], lm[152]);
   const r = angleDeg(lm[454], lm[397], lm[152]);
-  return clamp(9.5 - Math.abs((l + r) / 2 - 112) / 3.2, 1, 10);
+  const raw = clamp(9.5 - Math.abs((l + r) / 2 - 112) / 3.2, 1, 10);
+  if (luma === undefined) return raw;
+  const conf = lightingConfidence(luma);
+  // In bad lighting, blend toward a neutral 6.5 so poor rooms don't penalise jaw
+  return raw * conf + 6.5 * (1 - conf);
 }
 
-// ─── 4. Harmony — combined facial proportion sub-score ────────────────────────
-// Weights: midface thirds 35%, lips 25%, FWHR 25%, interocular 15%
+// ─── 4. Harmony ───────────────────────────────────────────────────────────────
 
-// Classical facial thirds: forehead (hairline→glabella), midface (glabella→subnasale),
-// lower face (subnasale→chin). Rule of thirds = all three equal.
-// Landmarks: 10=forehead top, 168=glabella/nose-bridge, 94=subnasale, 152=chin
 function facialThirdsRaw(lm: LM[]): number {
-  const t1 = Math.abs(lm[168].y - lm[10].y);  // forehead to glabella
-  const t2 = Math.abs(lm[94].y  - lm[168].y); // glabella to subnasale
-  const t3 = Math.abs(lm[152].y - lm[94].y);  // subnasale to chin
+  const t1 = Math.abs(lm[168].y - lm[10].y);
+  const t2 = Math.abs(lm[94].y  - lm[168].y);
+  const t3 = Math.abs(lm[152].y - lm[94].y);
   const total = t1 + t2 + t3;
   if (total < 0.01) return 5.5;
   const ideal = total / 3;
-  // Sum of per-third deviations from ideal, normalised to total height
   const dev = (Math.abs(t1 - ideal) + Math.abs(t2 - ideal) + Math.abs(t3 - ideal)) / total;
-  // dev=0 (perfect thirds) → 9.5; dev≈0.3 (30% off) → ~4
   return clamp(9.5 - dev * 18, 1, 10);
 }
 
@@ -142,44 +162,64 @@ function harmonyScore(lm: LM[]): number {
 }
 
 // ─── 5. Skin — lighting quality proxy ────────────────────────────────────────
-// Real skin texture can't be read from landmarks; AI provides the real value.
-// For live preview we use luma as a proxy.
 
 function skinScore(luma?: number): number {
-  if (luma === undefined) return 6.2; // neutral baseline
+  if (luma === undefined) return 6.2;
   if (luma < 40)  return 3.8;
   if (luma < 80)  return 5.2;
   if (luma < 120) return 6.0;
   if (luma < 160) return 7.0;
   if (luma < 200) return 7.5;
-  if (luma < 228) return 6.8; // slight overexposure
-  return 5.5;                 // blown out
+  if (luma < 228) return 6.8;
+  return 5.5;
 }
 
-// ─── 6. Golden Ratio — closeness to φ = 1.618 ─────────────────────────────────
-// Three axis-aligned ratios that need no image-aspect correction.
+// ─── 6. Golden Ratio ──────────────────────────────────────────────────────────
 
 const PHI = 1.6180339887;
 
 function goldenRatioScore(lm: LM[]): number {
-  // 1. Lower face percentage (chin-to-nose / chin-to-forehead) — ideal 1/φ² ≈ 0.382
   const totalH = lm[152].y - lm[10].y;
   const lowerH = lm[152].y - lm[1].y;
   if (totalH < 0.005) return 5;
   const lowerPct = lowerH / totalH;
   const s1 = clamp(9.5 - Math.abs(lowerPct - 0.382) * 50, 1, 10);
 
-  // 2. Mouth width / nose width — ideal φ ≈ 1.618
   const mouthW = Math.abs(lm[291].x - lm[61].x);
   const noseW  = Math.abs(lm[326].x - lm[97].x);
   const s2 = noseW < 0.001 ? 5 : clamp(9.5 - Math.abs(mouthW / noseW - PHI) / PHI * 22, 1, 10);
 
-  // 3. Upper face / middle face ratio (forehead-to-bridge / bridge-to-nose-tip) — ideal φ
   const upperH = lm[168].y - lm[10].y;
   const midH   = lm[1].y   - lm[168].y;
   const s3 = midH < 0.001 ? 5 : clamp(9.5 - Math.abs(upperH / midH - PHI) / PHI * 18, 1, 10);
 
   return clamp(s1 * 0.4 + s2 * 0.35 + s3 * 0.25, 1, 10);
+}
+
+// ─── Detectors (for live callouts + bonus computation) ────────────────────────
+
+// Returns strength 0–1; detected when both mouth corners lift above lip center
+export function detectSmile(lm: LM[]): { detected: boolean; strength: number } {
+  const fw = dist(lm[234], lm[454]);
+  if (fw === 0) return { detected: false, strength: 0 };
+  const lipCenterY   = (lm[13].y + lm[14].y) / 2;
+  const leftLift     = lipCenterY - lm[61].y;   // positive when corner above center
+  const rightLift    = lipCenterY - lm[291].y;
+  const avgLift      = (leftLift + rightLift) / 2;
+  const normalized   = avgLift / fw;
+  const THRESHOLD    = 0.008;
+  if (normalized < THRESHOLD) return { detected: false, strength: 0 };
+  return { detected: true, strength: clamp((normalized - THRESHOLD) / 0.03, 0, 1) };
+}
+
+// Eye aspect ratio — rewarded when eyes are open and engaged
+export function detectEyeOpen(lm: LM[]): { detected: boolean; strength: number } {
+  const leftEAR  = dist(lm[159], lm[145]) / (dist(lm[33],  lm[133]) + 0.001);
+  const rightEAR = dist(lm[386], lm[374]) / (dist(lm[263], lm[362]) + 0.001);
+  const avgEAR   = (leftEAR + rightEAR) / 2;
+  const THRESHOLD = 0.28;
+  if (avgEAR < THRESHOLD) return { detected: false, strength: 0 };
+  return { detected: true, strength: clamp((avgEAR - THRESHOLD) / 0.12, 0, 1) };
 }
 
 // ─── Label tables ─────────────────────────────────────────────────────────────
@@ -211,9 +251,83 @@ function flawLabel(key: TraitKey, score: number): string {
   return score <= 3.0 ? a : score <= 5.5 ? b : c;
 }
 
+// ─── Badge definitions ────────────────────────────────────────────────────────
+
+const BADGE_DEFS: { traitKey: TraitKey; id: string; label: string; color: string }[] = [
+  { traitKey: "canthalTilt", id: "HUNTER_EYES",    label: "Hunter Eyes",    color: "#22d3ee" },
+  { traitKey: "jawline",     id: "SHARP_JAW",       label: "Sharp Jaw",      color: "#a3e635" },
+  { traitKey: "skin",        id: "FLAWLESS_SKIN",   label: "Flawless Skin",  color: "#f9a8d4" },
+  { traitKey: "goldenRatio", id: "GOLDEN_RATIO",    label: "Golden Ratio",   color: "#fbbf24" },
+  { traitKey: "symmetry",    id: "MIRROR_SYMMETRY", label: "Mirror Symmetry",color: "#818cf8" },
+  { traitKey: "harmony",     id: "PERFECT_HARMONY", label: "Perfect Harmony",color: "#34d399" },
+];
+
+export function computeBadges(traits: Record<TraitKey, number>): Badge[] {
+  return BADGE_DEFS
+    .filter(b => traits[b.traitKey] >= 8.0)
+    .map(({ id, label, color, traitKey }) => ({ id, label, color, traitKey }));
+}
+
+// ─── Bonus computation ────────────────────────────────────────────────────────
+
+export function computeBonuses(
+  traits: Record<TraitKey, number>,
+  opts: {
+    luma?:         number;
+    smileStrength?: number;
+    eyeStrength?:   number;
+    aiHighlights?:  string[];
+  } = {},
+): BonusEvent[] {
+  const bonuses: BonusEvent[] = [];
+
+  const smile = opts.smileStrength ?? 0;
+  if (smile > 0) {
+    bonuses.push({
+      key: "smile", label: "Genuine Smile",
+      delta: clamp(0.15 + smile * 0.15, 0.15, 0.30),
+      traitKey: "harmony",
+    });
+  }
+
+  const eye = opts.eyeStrength ?? 0;
+  if (eye > 0) {
+    bonuses.push({
+      key: "eye_contact", label: "Eye Contact",
+      delta: clamp(0.10 + eye * 0.10, 0.10, 0.20),
+      traitKey: "canthalTilt",
+    });
+  }
+
+  if (traits.goldenRatio >= 8.0) {
+    bonuses.push({ key: "golden_ratio", label: "Phi Aligned", delta: 0.20, traitKey: "goldenRatio" });
+  }
+
+  const jawConf = opts.luma !== undefined ? lightingConfidence(opts.luma) : 1;
+  if (traits.jawline >= 8.0 && jawConf >= 0.7) {
+    bonuses.push({ key: "sharp_jaw", label: "Sharp Mandible", delta: 0.20, traitKey: "jawline" });
+  }
+
+  if (traits.symmetry >= 8.5) {
+    bonuses.push({ key: "mirror_symmetry", label: "Mirror Symmetry", delta: 0.15, traitKey: "symmetry" });
+  }
+
+  if (traits.harmony >= 8.0) {
+    bonuses.push({ key: "perfect_harmony", label: "Perfect Harmony", delta: 0.15, traitKey: "harmony" });
+  }
+
+  // AI-sourced highlights — small bonus each, capped at 3
+  const highlights = opts.aiHighlights?.slice(0, 3) ?? [];
+  for (const h of highlights) {
+    bonuses.push({ key: `ai_${bonuses.length}`, label: h, delta: 0.05, traitKey: "harmony" });
+  }
+
+  return bonuses;
+}
+
 // ─── Aggregation ──────────────────────────────────────────────────────────────
 
-function categorize(overall: number, traits: Record<TraitKey, number>): Omit<Scores, "overall" | "traits"> {
+function categorize(overall: number, traits: Record<TraitKey, number>): Omit<Scores, "overall" | "traits" | "bonuses" | "badges"> {
   const entries = Object.entries(traits) as [TraitKey, number][];
   const sorted   = [...entries].sort((a, b) => b[1] - a[1]);
   const domEntry  = sorted[0];
@@ -230,7 +344,6 @@ function categorize(overall: number, traits: Record<TraitKey, number>): Omit<Sco
 
   const sub: Scores["sub"] =
     overall < 4.0 ? "SUB1" : overall < 6.0 ? "SUB2" : overall < 7.5 ? "SUB3" : overall < 9.0 ? "SUB4" : "SUB5";
-  // 5-tier system from Omoggle article
   const tier: Scores["tier"] =
     overall >= 9.0 ? { code: "MOG", starColor: "#22d3ee" }
     : overall >= 7.5 ? { code: "CHS", starColor: "#f43f5e" }
@@ -250,14 +363,13 @@ function computeTraits(lm: LM[], luma?: number): Record<TraitKey, number> {
   return {
     canthalTilt: canthalTiltScore(lm),
     symmetry:    symmetryScore(lm),
-    jawline:     jawlineScore(lm),
+    jawline:     jawlineScore(lm, luma),
     harmony:     harmonyScore(lm),
     skin:        skinScore(luma),
     goldenRatio: goldenRatioScore(lm),
   };
 }
 
-// Weights per Omoggle article: harmony & symmetry carry more; skin is lighting-sensitive
 const TRAIT_WEIGHTS: Record<TraitKey, number> = {
   harmony:     0.27,
   symmetry:    0.25,
@@ -277,14 +389,13 @@ export function traitMean(traits: Record<TraitKey, number>): number {
   return sum / totalW;
 }
 
-// rawMean 6.0 → ~7.6, rawMean 7.0 → ~8.8
 export function overallFromMean(rawMean: number, candy = 0): number {
   return clamp(rawMean * 1.2 + 0.4 + candy, 3, 10);
 }
 
-// Random candy boost applied only to the final locked result (0.2–0.5)
+// Random candy boost: increased ceiling for more generous baseline (0.2–0.7)
 export function generateCandy(): number {
-  return 0.2 + Math.random() * 0.3;
+  return 0.2 + Math.random() * 0.5;
 }
 
 // Per-frame jitter for live variation
@@ -300,7 +411,6 @@ export function jitterTraits(traits: Record<TraitKey, number>, magnitude = 1.2):
   };
 }
 
-// α=0.3 → snappy response
 export function smoothScores(prev: Scores | null, next: Scores, alpha = 0.3): Scores {
   if (!prev) return next;
   const e = (p: number, n: number) => p * (1 - alpha) + n * alpha;
@@ -321,13 +431,18 @@ export function buildScores(
   domOverride?:  { label: string; value: number },
   flawOverride?: { label: string; value: number },
   candy = 0,
+  bonuses?: BonusEvent[],
 ): Scores {
-  const overall = overallFromMean(traitMean(traits), candy);
-  const base    = categorize(overall, traits);
+  const bonusDelta = (bonuses ?? []).reduce((s, b) => s + b.delta, 0);
+  const overall    = overallFromMean(traitMean(traits), candy + bonusDelta);
+  const base       = categorize(overall, traits);
+  const badges     = computeBadges(traits);
   return {
     overall, traits, ...base,
     ...(domOverride  ? { dom:  domOverride  } : {}),
     ...(flawOverride ? { flaw: flawOverride } : {}),
+    bonuses: bonuses ?? [],
+    badges,
   };
 }
 

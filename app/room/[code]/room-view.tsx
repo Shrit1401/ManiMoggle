@@ -54,16 +54,43 @@ function opponentData(players: Player[], sessionId: string | null): OpponentData
 
 function CopyCodeRow({ code }: { code: string }) {
   const [copied, setCopied] = useState(false);
+  const copy = () => { navigator.clipboard.writeText(code).catch(() => {}); setCopied(true); setTimeout(() => setCopied(false), 1500); };
   return (
-    <button
-      onClick={() => { navigator.clipboard.writeText(code).catch(() => {}); setCopied(true); setTimeout(() => setCopied(false), 1500); }}
-      className="flex items-center gap-1.5 font-mono font-bold text-[14px] tracking-[0.3em]
+    <button onClick={copy}
+      className="flex items-center gap-2 font-mono font-bold text-[15px] tracking-[0.32em]
         text-white hover:text-cyan-300 active:opacity-70 transition-colors">
       {code}
-      <span className={`text-[8px] font-normal tracking-normal transition-colors ${copied ? "text-emerald-400" : "text-white/25"}`}>
-        {copied ? "✓" : "copy"}
+      <span className={`text-[8px] font-normal tracking-normal px-1.5 py-0.5 rounded transition-all
+        ${copied ? "text-emerald-300 bg-emerald-500/15" : "text-white/35 bg-white/8"}`}>
+        {copied ? "✓ copied" : "copy"}
       </span>
     </button>
+  );
+}
+
+function ShareCard({ code }: { code: string }) {
+  const [copied, setCopied] = useState(false);
+  const copy = () => { navigator.clipboard.writeText(code).catch(() => {}); setCopied(true); setTimeout(() => setCopied(false), 2000); };
+  return (
+    <div className="flex flex-col items-center gap-3 px-5 py-5 rounded-3xl
+      bg-white/[0.06] ring-1 ring-white/18 text-center">
+      <p className="font-mono text-[8px] tracking-[0.45em] uppercase text-white/50">
+        Share this code with friends
+      </p>
+      <div className="font-mono font-black tracking-[0.4em] text-white select-all"
+        style={{ fontSize: "clamp(32px,8vw,48px)" }}>
+        {code}
+      </div>
+      <button onClick={copy}
+        style={{ minHeight: 44 }}
+        className={`w-full max-w-[220px] rounded-xl py-2.5 font-mono font-bold text-[10px] tracking-[0.22em] uppercase
+          transition-all active:scale-[0.97]
+          ${copied
+            ? "bg-emerald-500/20 ring-1 ring-emerald-400/40 text-emerald-300"
+            : "bg-cyan-500/20 ring-1 ring-cyan-400/35 text-cyan-300 hover:bg-cyan-500/30"}`}>
+        {copied ? "✓ Code Copied!" : "Copy Code"}
+      </button>
+    </div>
   );
 }
 
@@ -72,23 +99,56 @@ function CopyCodeRow({ code }: { code: string }) {
 function NamePrompt({ code, onDone }: { code: string; onDone: (n: string) => void }) {
   const [val, setVal] = useState("");
   return (
-    <div className="flex-1 flex flex-col items-center justify-center bg-black min-h-[100dvh] gap-5 px-5">
-      <p className="font-mono text-[8px] tracking-[0.3em] uppercase text-white/30">Room · {code}</p>
-      <h2 className="font-mono font-bold text-[20px] tracking-[0.18em] uppercase text-white">Enter your name</h2>
-      <input
-        autoFocus value={val}
-        onChange={e => setVal(e.target.value.toUpperCase().slice(0, 14))}
-        onKeyDown={e => { if (e.key === "Enter" && val.trim()) onDone(val.trim()); }}
-        placeholder="YOUR NAME" autoCapitalize="characters"
-        className="bg-white/[0.05] ring-1 ring-white/18 rounded-xl px-4 py-3.5 font-mono text-sm
-          text-white placeholder:text-white/20 tracking-widest uppercase outline-none
-          focus:ring-white/35 transition-all w-full max-w-xs"
-      />
-      <button onClick={() => { if (val.trim()) onDone(val.trim()); }} disabled={!val.trim()}
-        className="rounded-full bg-cyan-500/20 hover:bg-cyan-500/30 ring-1 ring-cyan-400/35
-          px-8 py-3.5 font-mono text-[11px] tracking-[0.25em] uppercase text-cyan-300 disabled:opacity-25">
-        Enter Arena
-      </button>
+    <div className="flex-1 flex flex-col items-center justify-center bg-black min-h-[100dvh] gap-6 px-5 py-8 relative overflow-hidden">
+      <div className="absolute inset-0 pointer-events-none">
+        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] h-[600px] rounded-full"
+          style={{ background: "radial-gradient(ellipse, rgba(34,211,238,0.07) 0%, transparent 70%)" }} />
+      </div>
+      <div className="relative z-10 w-full max-w-sm flex flex-col items-center gap-6 animate-fade-up">
+        <div className="flex flex-col items-center gap-1.5">
+          <div className="flex items-center gap-3 mb-1">
+            <div className="h-px w-8 bg-gradient-to-r from-transparent to-cyan-500/60" />
+            <span className="font-mono text-[7px] tracking-[0.5em] uppercase text-white/35">Room · {code}</span>
+            <div className="h-px w-8 bg-gradient-to-l from-transparent to-cyan-500/60" />
+          </div>
+          <h1 className="font-mono font-black text-[32px] tracking-[0.14em] uppercase text-white leading-none">Enter Arena</h1>
+          <p className="font-mono text-[8px] tracking-widest uppercase text-white/30 mt-1">Choose your fighter name</p>
+        </div>
+        <div className="w-full flex flex-col gap-2">
+          <label className="font-mono text-[7.5px] tracking-[0.35em] uppercase text-white/40 pl-1">Your Name</label>
+          <div className="relative">
+            <input
+              autoFocus value={val}
+              onChange={e => setVal(e.target.value.toUpperCase().slice(0, 14))}
+              onKeyDown={e => { if (e.key === "Enter" && val.trim()) onDone(val.trim()); }}
+              placeholder="ENTER NAME"
+              autoCapitalize="characters"
+              className="w-full bg-white/[0.05] ring-1 ring-white/12 rounded-2xl px-4 py-4 font-mono text-[15px]
+                text-white placeholder:text-white/18 tracking-[0.22em] uppercase outline-none
+                focus:ring-cyan-400/40 focus:bg-white/[0.07] transition-all"
+              style={{ minHeight: 56 }}
+            />
+            {val && (
+              <div className="absolute right-3 top-1/2 -translate-y-1/2 w-9 h-9 rounded-full
+                bg-gradient-to-br from-cyan-500/35 to-cyan-500/10 ring-1 ring-cyan-400/35
+                flex items-center justify-center font-mono text-[12px] font-bold text-cyan-300">
+                {val.charAt(0)}
+              </div>
+            )}
+          </div>
+        </div>
+        <button
+          onClick={() => { if (val.trim()) onDone(val.trim()); }}
+          disabled={!val.trim()}
+          style={{ minHeight: 52 }}
+          className="w-full rounded-2xl py-3.5 font-mono font-bold text-[11px] tracking-[0.22em] uppercase
+            transition-all active:scale-[0.98] disabled:opacity-30 disabled:cursor-not-allowed
+            bg-gradient-to-r from-cyan-500 to-cyan-400 hover:from-cyan-400 hover:to-cyan-300
+            text-black shadow-[0_0_40px_rgba(34,211,238,0.25)]"
+        >
+          Enter Arena →
+        </button>
+      </div>
     </div>
   );
 }
@@ -141,46 +201,56 @@ function BattleView({ room, sessionId, name, onStartScan }: {
   const FighterCard = ({ player, isMe, isWin, isLose }: { player: Player | null; isMe: boolean; isWin: boolean; isLose: boolean }) => {
     if (!player) return (
       <div className="flex-1 flex flex-col items-center justify-center gap-3 rounded-2xl
-        bg-white/[0.025] ring-1 ring-dashed ring-white/10 p-5 min-h-[180px]">
-        <div className="w-12 h-12 rounded-full border-2 border-dashed border-white/12
-          flex items-center justify-center text-white/15 text-xl">?</div>
-        <p className="font-mono text-[8px] tracking-[0.28em] uppercase text-white/20">Waiting…</p>
+        bg-white/[0.025] ring-1 ring-dashed ring-white/10 p-5 min-h-[200px]">
+        <div className="w-14 h-14 rounded-full border-2 border-dashed border-white/12
+          flex items-center justify-center text-white/15 text-2xl">?</div>
+        <p className="font-mono text-[8px] tracking-[0.28em] uppercase text-white/20">Waiting for opponent…</p>
       </div>
     );
     const done = player.phase === "done"; const scanning = player.phase === "scanning";
     return (
-      <div className={`flex-1 flex flex-col items-center gap-2.5 rounded-2xl p-4 transition-all min-h-[180px]
-        ${isWin && settled ? "bg-amber-400/[0.06] ring-2 ring-amber-400/35"
-          : isLose && settled ? "bg-white/[0.015] ring-1 ring-white/8 opacity-55"
-          : isMe ? "bg-cyan-500/[0.04] ring-1 ring-cyan-400/20" : "bg-white/[0.04] ring-1 ring-white/10"}`}>
-        {isWin && settled && <span className="text-base">👑</span>}
-        <div className={`w-12 h-12 rounded-full ring-2 flex items-center justify-center font-mono text-lg font-bold text-white shrink-0
-          ${isWin && settled ? "bg-amber-400/20 ring-amber-400/45" : isMe ? "bg-cyan-500/20 ring-cyan-400/35" : "bg-white/8 ring-white/18"}`}>
+      <div className={`flex-1 flex flex-col items-center gap-3 rounded-2xl p-4 transition-all min-h-[200px]
+        ${isWin && settled ? "bg-gradient-to-b from-amber-400/10 to-amber-400/[0.03] ring-2 ring-amber-400/40"
+          : isLose && settled ? "bg-white/[0.015] ring-1 ring-white/8 opacity-45"
+          : isMe ? "bg-cyan-500/[0.05] ring-1 ring-cyan-400/25" : "bg-white/[0.04] ring-1 ring-white/10"}`}>
+        {isWin && settled && <span className="text-xl drop-shadow-[0_0_8px_rgba(251,191,36,0.8)]">👑</span>}
+        <div className={`w-14 h-14 rounded-full ring-2 flex items-center justify-center font-mono text-xl font-bold text-white shrink-0
+          ${isWin && settled ? "bg-amber-400/20 ring-amber-400/50 shadow-[0_0_20px_rgba(251,191,36,0.25)]"
+            : isMe ? "bg-cyan-500/20 ring-cyan-400/40 shadow-[0_0_16px_rgba(34,211,238,0.2)]"
+            : "bg-white/8 ring-white/18"}`}>
           {player.name.charAt(0)}
         </div>
         <div className="text-center">
-          <p className={`font-sans font-bold text-[13px] tracking-[0.1em] uppercase ${isMe ? "text-cyan-300" : "text-white"}`}>{player.name}</p>
-          <p className="font-mono text-[8px] tracking-widest text-white/25">{player.wins ?? 0}W · {player.losses ?? 0}L</p>
+          <p className={`font-sans font-bold text-[14px] tracking-[0.1em] uppercase
+            ${isWin && settled ? "text-amber-300" : isMe ? "text-cyan-300" : "text-white"}`}>
+            {player.name}
+          </p>
+          <p className="font-mono text-[8px] tracking-widest text-white/25 mt-0.5">{player.wins ?? 0}W · {player.losses ?? 0}L</p>
         </div>
         {done ? (
-          <div className="flex flex-col items-center gap-0.5">
-            <span className="font-sans font-black text-[32px] text-white tabular-nums leading-none">{player.overall?.toFixed(1)}</span>
-            <span className="font-mono text-[8px] tracking-widest text-white/45 uppercase">{player.tierCode} · {player.level}</span>
-            <p className="font-mono text-[7px] tracking-wider text-emerald-400/75 text-center mt-1">{player.domLabel}</p>
-            <p className="font-mono text-[7px] tracking-wider text-rose-400/65 text-center">{player.flawLabel}</p>
+          <div className="flex flex-col items-center gap-1">
+            <span className={`font-sans font-black tabular-nums leading-none
+              ${isWin && settled ? "text-[52px] text-amber-300" : "text-[46px] text-white"}`}>
+              {player.overall?.toFixed(1)}
+            </span>
+            <span className="font-mono text-[8px] tracking-widest text-white/40 uppercase">{player.tierCode} · {player.level}</span>
+            <p className="font-mono text-[7px] tracking-wider text-emerald-400/80 text-center mt-1 max-w-[120px] leading-snug">{player.domLabel}</p>
+            <p className="font-mono text-[7px] tracking-wider text-rose-400/65 text-center max-w-[120px]">{player.flawLabel}</p>
           </div>
         ) : scanning ? (
-          <div className="flex items-center gap-1.5 mt-1">
-            <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-ping shrink-0" />
-            <span className="font-mono text-[8px] tracking-widest uppercase text-cyan-400">Scanning…</span>
+          <div className="flex flex-col items-center gap-2 mt-1">
+            <div className="flex items-center gap-1.5">
+              <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-ping shrink-0" />
+              <span className="font-mono text-[8px] tracking-widest uppercase text-cyan-400">Scanning…</span>
+            </div>
           </div>
         ) : (
           <div className="flex flex-col items-center gap-2 mt-1">
-            <span className="font-mono text-[8px] tracking-widest uppercase text-white/25">Ready</span>
+            <span className="font-mono text-[8px] tracking-widest uppercase text-white/22">Ready</span>
             {isMe && !settled && (
               <button onClick={() => onStartScan(iAmFA ? (room.fighterB ?? null) : (room.fighterA ?? null))}
                 className="rounded-full bg-cyan-500/20 hover:bg-cyan-500/35 ring-1 ring-cyan-400/40
-                  px-4 py-2 font-mono text-[9px] tracking-[0.22em] uppercase text-cyan-300 transition-all">
+                  px-5 py-2.5 font-mono text-[9px] tracking-[0.22em] uppercase text-cyan-300 transition-all active:scale-[0.97]">
                 Start Scan
               </button>
             )}
@@ -192,82 +262,85 @@ function BattleView({ room, sessionId, name, onStartScan }: {
 
   return (
     <div className="flex flex-col bg-black min-h-[100dvh] overflow-hidden">
-      <div className="flex items-center justify-between px-4 pt-safe pt-5 pb-3 shrink-0">
+      <div className="flex items-center justify-between px-4 pt-safe pt-4 pb-3 shrink-0 border-b border-white/[0.05]">
         <button onClick={() => router.push("/")} className="font-mono text-[8px] tracking-[0.25em] uppercase text-white/28 hover:text-white/55 transition-colors p-1">← Exit</button>
-        <div className="flex flex-col items-center">
-          <span className="font-mono text-[7px] tracking-[0.35em] uppercase text-white/25">1v1 Battle</span>
+        <div className="flex flex-col items-center gap-0.5">
+          <span className="font-mono text-[6.5px] tracking-[0.4em] uppercase text-white/22">⚔ 1v1 Battle</span>
           <CopyCodeRow code={room.code} />
         </div>
         <div className="w-10" />
       </div>
 
-      <div className="flex-1 flex flex-col px-4 gap-3 overflow-y-auto pb-4">
-        <div className="flex flex-col sm:flex-row gap-2 sm:gap-3">
-          <FighterCard player={fA} isMe={iAmFA} isWin={winner?.sessionId === room.fighterA} isLose={loser?.sessionId === room.fighterA} />
-          <div className="flex sm:flex-col items-center justify-center gap-2 py-1 sm:py-0 sm:w-8">
-            <div className="flex-1 h-px sm:w-px bg-white/8" />
-            <span className="font-mono text-[10px] font-bold tracking-widest text-white/35">VS</span>
-            <div className="flex-1 h-px sm:w-px bg-white/8" />
-          </div>
-          <FighterCard player={fB} isMe={iAmFB} isWin={winner?.sessionId === room.fighterB} isLose={loser?.sessionId === room.fighterB} />
-        </div>
+      <div className="flex-1 overflow-y-auto">
+        <div className="max-w-lg mx-auto px-4 py-5 flex flex-col gap-4">
 
-        {!fB && (
-          <div className="flex flex-col items-center gap-1.5 py-2">
-            <p className="font-mono text-[8px] tracking-[0.25em] uppercase text-white/28">Share to challenge</p>
-            <CopyCodeRow code={room.code} />
-          </div>
-        )}
+          {!fB && <ShareCard code={room.code} />}
 
-        {settled && winner && (
-          <div className="flex flex-col items-center gap-0.5 py-2">
-            <p className="font-mono text-[7px] tracking-[0.4em] uppercase text-amber-400/55">Winner</p>
-            <p className="font-sans font-black text-[20px] tracking-[0.12em] uppercase text-amber-400">{winner.name}</p>
-          </div>
-        )}
-
-        {settled && (
-          <div className="flex gap-2">
-            {iAmFighter && (
-              <button onClick={() => rematchMutation({ roomId: room._id as Id<"rooms"> })}
-                className="flex-1 rounded-full bg-white/8 hover:bg-white/14 ring-1 ring-white/15
-                  py-3.5 font-mono text-[10px] tracking-[0.22em] uppercase text-white transition-all">
-                Rematch
-              </button>
-            )}
-            {!iAmFighter && players.find(p => p.sessionId === sessionId) && (
-              <button onClick={() => challengeMutation({ roomId: room._id as Id<"rooms">, challengerSessionId: sessionId })}
-                className="flex-1 rounded-full bg-amber-400/15 hover:bg-amber-400/22 ring-1 ring-amber-400/30
-                  py-3.5 font-mono text-[10px] tracking-[0.22em] uppercase text-amber-300 transition-all">
-                Challenge Winner
-              </button>
-            )}
-            <button onClick={() => router.push("/")}
-              className="rounded-full bg-white/[0.03] hover:bg-white/8 ring-1 ring-white/10
-                px-4 py-3.5 font-mono text-[10px] tracking-[0.18em] uppercase text-white/38 transition-all">
-              Exit
-            </button>
-          </div>
-        )}
-
-        {queue.length > 0 && (
-          <div className="flex flex-col gap-1.5 pt-1">
-            <p className="font-mono text-[7px] tracking-[0.3em] uppercase text-white/22 px-1">
-              {settled ? "Next up" : "Spectating"} · {queue.length}
-            </p>
-            {queue.map(p => (
-              <div key={p._id} className={`flex items-center gap-3 px-3 py-3 rounded-xl
-                ${p.sessionId === sessionId ? "bg-white/[0.05] ring-1 ring-white/12" : "bg-white/[0.02]"}`}>
-                <div className="w-8 h-8 rounded-full bg-white/8 ring-1 ring-white/15
-                  flex items-center justify-center font-mono text-[11px] text-white/55 shrink-0">
-                  {p.name.charAt(0)}
-                </div>
-                <span className={`font-sans font-semibold text-[12px] tracking-[0.08em] uppercase flex-1
-                  ${p.sessionId === sessionId ? "text-cyan-300" : "text-white/65"}`}>{p.name}</span>
+          <div className="flex flex-col sm:flex-row gap-2 sm:gap-3">
+            <FighterCard player={fA} isMe={iAmFA} isWin={winner?.sessionId === room.fighterA} isLose={loser?.sessionId === room.fighterA} />
+            <div className="flex sm:flex-col items-center justify-center gap-2 py-1 sm:py-0 sm:w-8">
+              <div className="flex-1 h-px sm:w-px bg-white/8" />
+              <div className="w-9 h-9 rounded-full bg-black ring-1 ring-white/15 flex items-center justify-center shrink-0">
+                <span className="font-mono text-[8px] font-bold tracking-widest text-white/45">VS</span>
               </div>
-            ))}
+              <div className="flex-1 h-px sm:w-px bg-white/8" />
+            </div>
+            <FighterCard player={fB} isMe={iAmFB} isWin={winner?.sessionId === room.fighterB} isLose={loser?.sessionId === room.fighterB} />
           </div>
-        )}
+
+          {settled && winner && (
+            <div className="flex flex-col items-center gap-1 py-3 rounded-2xl bg-amber-400/[0.06] ring-1 ring-amber-400/20">
+              <p className="font-mono text-[6.5px] tracking-[0.45em] uppercase text-amber-400/50">Winner</p>
+              <p className="font-sans font-black text-[24px] tracking-[0.1em] uppercase text-amber-300">{winner.name}</p>
+            </div>
+          )}
+
+          {settled && (
+            <div className="flex gap-2">
+              {iAmFighter && (
+                <button onClick={() => rematchMutation({ roomId: room._id as Id<"rooms"> })}
+                  style={{ minHeight: 48 }}
+                  className="flex-1 rounded-2xl bg-white/8 hover:bg-white/14 ring-1 ring-white/15
+                    py-3 font-mono text-[10px] tracking-[0.22em] uppercase text-white transition-all active:scale-[0.97]">
+                  Rematch
+                </button>
+              )}
+              {!iAmFighter && players.find(p => p.sessionId === sessionId) && (
+                <button onClick={() => challengeMutation({ roomId: room._id as Id<"rooms">, challengerSessionId: sessionId })}
+                  style={{ minHeight: 48 }}
+                  className="flex-1 rounded-2xl bg-amber-400/12 hover:bg-amber-400/20 ring-1 ring-amber-400/28
+                    py-3 font-mono text-[10px] tracking-[0.22em] uppercase text-amber-300 transition-all active:scale-[0.97]">
+                  Challenge Winner
+                </button>
+              )}
+              <button onClick={() => router.push("/")}
+                style={{ minHeight: 48 }}
+                className="rounded-2xl bg-white/[0.03] hover:bg-white/8 ring-1 ring-white/10
+                  px-4 py-3 font-mono text-[10px] tracking-[0.18em] uppercase text-white/35 transition-all active:scale-[0.97]">
+                Exit
+              </button>
+            </div>
+          )}
+
+          {queue.length > 0 && (
+            <div className="flex flex-col gap-1.5">
+              <p className="font-mono text-[7px] tracking-[0.3em] uppercase text-white/40 px-1">
+                {settled ? "Next up" : "Spectating"} · {queue.length}
+              </p>
+              {queue.map(p => (
+                <div key={p._id} className={`flex items-center gap-3 px-4 py-3.5 rounded-2xl ring-1
+                  ${p.sessionId === sessionId ? "bg-cyan-500/[0.09] ring-cyan-400/30" : "bg-white/[0.05] ring-white/12"}`}>
+                  <div className={`w-9 h-9 rounded-full ring-1 flex items-center justify-center font-mono text-[13px] font-bold shrink-0
+                    ${p.sessionId === sessionId ? "bg-cyan-500/25 ring-cyan-400/40 text-cyan-200" : "bg-white/12 ring-white/22 text-white"}`}>
+                    {p.name.charAt(0)}
+                  </div>
+                  <span className={`font-sans font-bold text-[14px] tracking-[0.06em] uppercase flex-1 truncate
+                    ${p.sessionId === sessionId ? "text-cyan-300" : "text-white/88"}`}>{p.name}</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );
@@ -459,67 +532,91 @@ function TournamentView({ room, sessionId, name, onStartScan }: {
 
   // ── Lobby ──────────────────────────────────────────────────────────────────
   if (status === "lobby") {
+    const canStart = players.length >= 2;
     return (
       <div className="flex flex-col bg-black min-h-[100dvh] overflow-hidden">
-        <div className="flex items-center justify-between px-4 pt-safe pt-5 pb-3 shrink-0">
-          <button onClick={() => router.push("/")} className="font-mono text-[8px] tracking-[0.25em] uppercase text-white/28 hover:text-white/55 p-1">← Exit</button>
-          <div className="flex flex-col items-center">
-            <span className="font-mono text-[7px] tracking-[0.35em] uppercase text-white/25">Tournament</span>
-            <CopyCodeRow code={room.code} />
-          </div>
-          <div className="w-10" />
+        <div className="flex items-center justify-between px-4 pt-safe pt-4 pb-3 shrink-0 border-b border-white/10">
+          <button onClick={() => router.push("/")}
+            className="font-mono text-[8px] tracking-[0.25em] uppercase text-white/50 hover:text-white/80 transition-colors p-1">
+            ← Exit
+          </button>
+          <span className="font-mono text-[8px] tracking-[0.4em] uppercase text-white/45">🏆 Tournament</span>
+          <div className="w-12" />
         </div>
 
-        <div className="flex-1 flex flex-col px-4 pb-6 gap-4 overflow-y-auto">
-          <div className="flex flex-col items-center gap-1 pt-4">
-            <p className="font-mono text-[7px] tracking-[0.35em] uppercase text-white/30">
-              {players.length} / 32 players
-            </p>
-            <p className="font-mono text-[8px] tracking-widest uppercase text-white/20">
-              Waiting for players · share code
-            </p>
-          </div>
+        <div className="flex-1 overflow-y-auto">
+          <div className="max-w-lg mx-auto px-4 py-6 flex flex-col gap-5">
 
-          <div className="flex flex-col gap-1.5">
-            {players.map((p, i) => (
-              <div key={p._id} className={`flex items-center gap-3 px-3 py-3 rounded-xl
-                ${p.sessionId === sessionId ? "bg-white/[0.06] ring-1 ring-white/15" : "bg-white/[0.025] ring-1 ring-white/8"}`}>
-                <span className="font-mono text-[8px] text-white/25 w-4 shrink-0">{i + 1}</span>
-                <div className="w-8 h-8 rounded-full bg-white/10 ring-1 ring-white/20
-                  flex items-center justify-center font-mono text-[11px] font-bold text-white shrink-0">
-                  {p.name.charAt(0)}
-                </div>
-                <span className={`font-sans font-semibold text-[12px] tracking-[0.08em] uppercase flex-1
-                  ${p.sessionId === sessionId ? "text-cyan-300" : "text-white/70"}`}>
-                  {p.name}
-                  {p.sessionId === room.hostSessionId && (
-                    <span className="ml-1.5 font-mono text-[7px] text-white/25 tracking-widest">HOST</span>
+            <ShareCard code={room.code} />
+
+            <div className="flex flex-col gap-2">
+              <div className="flex items-center justify-between px-1">
+                <p className="font-mono text-[8px] tracking-[0.38em] uppercase text-white/55">Players</p>
+                <p className="font-mono text-[8px] tracking-widest text-white/45">{players.length} / 32</p>
+              </div>
+              {players.map((p, i) => (
+                <div key={p._id} className={`flex items-center gap-3 px-4 py-3.5 rounded-2xl ring-1
+                  ${p.sessionId === sessionId ? "bg-cyan-500/[0.09] ring-cyan-400/30" : "bg-white/[0.05] ring-white/12"}`}>
+                  <span className="font-mono text-[9px] text-white/38 w-5 shrink-0 tabular-nums">{i + 1}</span>
+                  <div className={`w-9 h-9 rounded-full ring-1 flex items-center justify-center font-mono text-[13px] font-bold shrink-0
+                    ${p.sessionId === sessionId ? "bg-cyan-500/25 ring-cyan-400/40 text-cyan-200" : "bg-white/12 ring-white/22 text-white"}`}>
+                    {p.name.charAt(0)}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className={`font-sans font-bold text-[14px] tracking-[0.06em] uppercase truncate
+                      ${p.sessionId === sessionId ? "text-cyan-300" : "text-white/88"}`}>
+                      {p.name}
+                    </p>
+                    {p.sessionId === room.hostSessionId && (
+                      <span className="font-mono text-[7px] text-amber-400/75 tracking-widest uppercase">Host</span>
+                    )}
+                  </div>
+                  {p.sessionId === sessionId && (
+                    <span className="font-mono text-[7.5px] tracking-widest uppercase text-cyan-400/80 shrink-0">you</span>
                   )}
-                </span>
-                {p.sessionId === sessionId && (
-                  <span className="font-mono text-[7px] tracking-widest uppercase text-cyan-400/60">you</span>
+                </div>
+              ))}
+              {players.length < 2 && (
+                <div className="flex items-center gap-3 px-4 py-3.5 rounded-2xl bg-white/[0.03] ring-1 ring-dashed ring-white/12">
+                  <div className="w-9 h-9 rounded-full border-2 border-dashed border-white/18
+                    flex items-center justify-center text-white/22 text-lg shrink-0">+</div>
+                  <p className="font-mono text-[8px] tracking-widest uppercase text-white/38">
+                    Waiting for more players…
+                  </p>
+                </div>
+              )}
+            </div>
+
+            {isHost ? (
+              <div className="flex flex-col gap-2">
+                <button
+                  onClick={() => startTournament({ roomId: room._id as Id<"rooms"> })}
+                  disabled={!canStart}
+                  style={{ minHeight: 54 }}
+                  className={`w-full rounded-2xl py-4 font-mono font-bold text-[11px] tracking-[0.22em] uppercase
+                    transition-all active:scale-[0.98]
+                    ${canStart
+                      ? "bg-gradient-to-r from-amber-500 to-amber-400 hover:from-amber-400 hover:to-amber-300 text-black shadow-[0_0_40px_rgba(251,191,36,0.30)]"
+                      : "bg-white/[0.06] ring-1 ring-white/14 text-white/32 cursor-not-allowed"}`}>
+                  {canStart ? `Start Tournament · ${players.length} players` : "Need at least 2 players"}
+                </button>
+                {!canStart && (
+                  <p className="font-mono text-[7.5px] tracking-widest uppercase text-white/38 text-center">
+                    Share the code above to invite friends
+                  </p>
                 )}
               </div>
-            ))}
+            ) : (
+              <div className="flex items-center gap-2.5 justify-center py-4 rounded-2xl bg-white/[0.04] ring-1 ring-white/10">
+                <span className="w-1.5 h-1.5 rounded-full bg-amber-400/70 animate-pulse shrink-0" />
+                <p className="font-mono text-[8.5px] tracking-[0.28em] uppercase text-white/58">
+                  Waiting for host to start…
+                </p>
+              </div>
+            )}
           </div>
-
-          {isHost ? (
-            <button
-              onClick={() => startTournament({ roomId: room._id as Id<"rooms"> })}
-              disabled={players.length < 2}
-              className="w-full rounded-full bg-cyan-500/20 hover:bg-cyan-500/30 active:scale-[0.98]
-                ring-1 ring-cyan-400/35 py-4 font-mono text-[11px] tracking-[0.28em]
-                uppercase text-cyan-300 transition-all disabled:opacity-25"
-            >
-              Start Tournament ({players.length} players)
-            </button>
-          ) : (
-            <p className="font-mono text-[8px] tracking-[0.25em] uppercase text-white/25 text-center py-2">
-              Waiting for host to start…
-            </p>
-          )}
         </div>
-      </div>
+        </div>
     );
   }
 
@@ -639,7 +736,7 @@ function TournamentView({ room, sessionId, name, onStartScan }: {
             </button>
           )}
         </div>
-      </div>
+        </div>
     );
   }
 
@@ -979,24 +1076,16 @@ function GroupScanView({ room, sessionId }: {
     <div className="relative flex flex-col bg-black h-[100dvh] overflow-hidden">
 
       {/* ── Minimal header ── */}
-      <div className="flex items-center justify-between px-4 pt-safe pt-3 pb-2 shrink-0 z-10">
+      <div className="flex items-center justify-between px-4 pt-safe pt-3 pb-2.5 shrink-0 z-10 bg-black/40 backdrop-blur-sm border-b border-white/[0.05]">
         <button onClick={() => router.push("/")}
-          className="font-mono text-[8px] tracking-[0.25em] uppercase text-white/30 hover:text-white/60 transition-colors">
+          className="font-mono text-[8px] tracking-[0.25em] uppercase text-white/30 hover:text-white/60 transition-colors p-1">
           ← Exit
         </button>
-        <CopyCodeRow code={room.code} />
-        {isHost && !started && !allDone ? (
-          <button
-            onClick={() => void startGroupMut({ roomId: room._id as Id<"rooms"> })}
-            className="rounded-full px-4 py-2 font-mono text-[9px] tracking-[0.2em] uppercase
-              font-bold text-black transition-all active:scale-[0.96]
-              bg-gradient-to-r from-cyan-400 to-cyan-500 shadow-[0_0_24px_rgba(34,211,238,0.45)]"
-          >
-            Start Scan
-          </button>
-        ) : (
-          <div className="w-20" />
-        )}
+        <div className="flex flex-col items-center gap-0.5">
+          <span className="font-mono text-[6px] tracking-[0.4em] uppercase text-white/25">Group Scan</span>
+          <CopyCodeRow code={room.code} />
+        </div>
+        <div className="w-14" />
       </div>
 
       {/* ── Camera grid — fills remaining height perfectly ── */}
@@ -1047,6 +1136,21 @@ function GroupScanView({ room, sessionId }: {
                           className="rounded-full bg-white/10 hover:bg-white/18 px-3 py-1.5
                             font-mono text-[7px] tracking-widest uppercase text-white">
                           Retry
+                        </button>
+                      )}
+                      {!submittedRef.current && (
+                        <button onClick={() => {
+                          submittedRef.current = true;
+                          void submitScore({
+                            roomId: room._id as Id<"rooms">, sessionId,
+                            overall: 1, elo: 57, sub: "SUB1",
+                            tierCode: "BCK", tierColor: "#6b7280",
+                            level: "L0", domLabel: "—", flawLabel: "Skipped",
+                          }).catch(() => {});
+                        }}
+                          className="rounded-full bg-rose-500/15 ring-1 ring-rose-400/25 px-3 py-1.5
+                            font-mono text-[7px] tracking-widest uppercase text-rose-300">
+                          Skip Scan
                         </button>
                       )}
                     </div>
@@ -1153,8 +1257,8 @@ function GroupScanView({ room, sessionId }: {
       {countdown !== null && (
         <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/80 z-30 pointer-events-none">
           <p className="font-mono text-[9px] tracking-[0.5em] uppercase text-white/40 mb-2">Get ready</p>
-          <span className="font-mono font-black leading-none text-white tabular-nums"
-            style={{ fontSize: "clamp(80px, 20vw, 130px)" }}>
+          <span key={countdown} className="font-mono font-black leading-none text-white tabular-nums animate-countdown-pop"
+            style={{ fontSize: "clamp(80px, 20vw, 130px)", textShadow: "0 0 40px rgba(34,211,238,0.4)" }}>
             {countdown}
           </span>
         </div>
@@ -1176,14 +1280,27 @@ function GroupScanView({ room, sessionId }: {
         </div>
       )}
 
-      {/* ── Waiting pill ── */}
-      {!started && !isHost && phase === "live" && !allDone && (
-        <div className="absolute bottom-5 inset-x-0 flex justify-center pointer-events-none z-10">
-          <div className="glass rounded-full px-4 py-2 flex items-center gap-2">
-            <span className="w-1.5 h-1.5 rounded-full bg-white/25 animate-pulse shrink-0" />
-            <span className="font-mono text-[7px] tracking-[0.25em] uppercase text-white/35">
-              Waiting for host…
-            </span>
+      {/* ── Pre-scan panel: share code + start/wait ── */}
+      {!started && !allDone && (
+        <div className="absolute inset-x-0 bottom-0 z-20 bg-gradient-to-t from-black via-black/95 to-transparent pt-16 pb-safe pb-5 px-4">
+          <div className="flex flex-col gap-3 max-w-sm mx-auto">
+            <ShareCard code={room.code} />
+            {isHost ? (
+              <button
+                onClick={() => void startGroupMut({ roomId: room._id as Id<"rooms"> })}
+                style={{ minHeight: 50 }}
+                className="w-full rounded-2xl py-3.5 font-mono font-bold text-[11px] tracking-[0.22em] uppercase
+                  transition-all active:scale-[0.98]
+                  bg-gradient-to-r from-cyan-500 to-cyan-400 hover:from-cyan-400 hover:to-cyan-300
+                  text-black shadow-[0_0_36px_rgba(34,211,238,0.28)]">
+                Start Scan
+              </button>
+            ) : (
+              <div className="flex items-center gap-2.5 justify-center py-3 rounded-2xl bg-white/[0.04] ring-1 ring-white/10">
+                <span className="w-1.5 h-1.5 rounded-full bg-white/30 animate-pulse shrink-0" />
+                <span className="font-mono text-[8px] tracking-[0.25em] uppercase text-white/50">Waiting for host…</span>
+              </div>
+            )}
           </div>
         </div>
       )}

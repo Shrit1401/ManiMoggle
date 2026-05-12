@@ -4,9 +4,10 @@ import { useRef, useState, useEffect, useCallback } from "react";
 import type { FaceLandmarker } from "@mediapipe/tasks-vision";
 import {
   scoreFace, smoothScores, aggregateMedian, traitsToVector,
-  buildScores, jitterTraits, generateCandy, overallFromMean, traitMean,
+  buildScores, jitterTraits, generateCandy, traitMean,
+  detectSmile, detectEyeOpen, computeBonuses, computeBadges,
 } from "./face-rating";
-import type { Scores, TraitKey } from "./face-rating";
+import type { Scores, TraitKey, BonusEvent } from "./face-rating";
 import { rateFromImage, captureVideoFrame } from "./ai-rating";
 import type { AIRating } from "./ai-rating";
 
@@ -72,8 +73,8 @@ export function useFaceLandmarker() {
   const streamRef        = useRef<MediaStream | null>(null);
   const landmarkerRef    = useRef<FaceLandmarker | null>(null);
   const smoothedRef      = useRef<Scores | null>(null);
-  const rawScoresRef     = useRef<Scores | null>(null);   // landmark-only aggregate
-  const aiRatingRef      = useRef<AIRating | null>(null); // Gemini output
+  const rawScoresRef     = useRef<Scores | null>(null);
+  const aiRatingRef      = useRef<AIRating | null>(null);
   const lastUpdateRef    = useRef(0);
   const lastTsRef        = useRef(-1);
   const lastVideoTimeRef = useRef(-1);
@@ -82,6 +83,12 @@ export function useFaceLandmarker() {
   const samplesRef       = useRef<number[][]>([]);
   const scanStartRef     = useRef(0);
   const skippedRef       = useRef(0);
+  const lastLumaRef      = useRef<number>(128);
+
+  // Bonus detection tracking
+  const firedBonusKeysRef  = useRef<Set<string>>(new Set());
+  const maxSmileRef        = useRef(0);
+  const maxEyeRef          = useRef(0);
 
   const [status,           setStatus]           = useState<Status>("idle");
   const [phase,            setPhase]            = useState<Phase>("live");
@@ -90,6 +97,7 @@ export function useFaceLandmarker() {
   const [scanProgress,     setScanProgress]     = useState(0);
   const [samplesCollected, setSamplesCollected] = useState(0);
   const [samplesSkipped,   setSamplesSkipped]   = useState(0);
+  const [liveBonuses,      setLiveBonuses]      = useState<BonusEvent[]>([]);
 
   const stopEverything = useCallback(() => {
     cancelAnimationFrame(rafRef.current);
@@ -100,25 +108,33 @@ export function useFaceLandmarker() {
 
   const startScan = useCallback(() => {
     if (phaseRef.current !== "live") return;
-    samplesRef.current  = [];
-    skippedRef.current  = 0;
-    scanStartRef.current = performance.now();
-    phaseRef.current    = "scanning";
+    samplesRef.current       = [];
+    skippedRef.current       = 0;
+    scanStartRef.current     = performance.now();
+    firedBonusKeysRef.current = new Set();
+    maxSmileRef.current      = 0;
+    maxEyeRef.current        = 0;
+    phaseRef.current         = "scanning";
     setPhase("scanning");
+    setLiveBonuses([]);
     setScanProgress(0);
     setSamplesCollected(0);
     setSamplesSkipped(0);
   }, []);
 
   const resetScan = useCallback(() => {
-    phaseRef.current     = "live";
-    samplesRef.current   = [];
-    skippedRef.current   = 0;
-    smoothedRef.current  = null;
-    rawScoresRef.current = null;
-    aiRatingRef.current  = null;
+    phaseRef.current         = "live";
+    samplesRef.current       = [];
+    skippedRef.current       = 0;
+    smoothedRef.current      = null;
+    rawScoresRef.current     = null;
+    aiRatingRef.current      = null;
+    firedBonusKeysRef.current = new Set();
+    maxSmileRef.current      = 0;
+    maxEyeRef.current        = 0;
     setPhase("live");
     setScores(null);
+    setLiveBonuses([]);
     setScanProgress(0);
     setSamplesCollected(0);
     setSamplesSkipped(0);
@@ -127,14 +143,18 @@ export function useFaceLandmarker() {
   const start = useCallback(async () => {
     stopEverything();
     setError(null);
-    phaseRef.current     = "live";
-    samplesRef.current   = [];
-    skippedRef.current   = 0;
-    smoothedRef.current  = null;
-    rawScoresRef.current = null;
-    aiRatingRef.current  = null;
+    phaseRef.current         = "live";
+    samplesRef.current       = [];
+    skippedRef.current       = 0;
+    smoothedRef.current      = null;
+    rawScoresRef.current     = null;
+    aiRatingRef.current      = null;
+    firedBonusKeysRef.current = new Set();
+    maxSmileRef.current      = 0;
+    maxEyeRef.current        = 0;
     setPhase("live");
     setScores(null);
+    setLiveBonuses([]);
     setScanProgress(0);
     setSamplesCollected(0);
     setSamplesSkipped(0);
@@ -165,7 +185,7 @@ export function useFaceLandmarker() {
         const { FaceLandmarker, FilesetResolver } = await import("@mediapipe/tasks-vision");
         const vision = await FilesetResolver.forVisionTasks(WASM_CDN);
         landmarkerRef.current = await FaceLandmarker.createFromOptions(vision, {
-          baseOptions: { modelAssetPath: MODEL_URL, delegate: "GPU" },
+          baseOptions: { modelAssetPath: MODEL_URL, delegate: "CPU" },
           runningMode: "VIDEO",
           numFaces: 1,
         });
@@ -199,7 +219,7 @@ export function useFaceLandmarker() {
           catch { rafRef.current = requestAnimationFrame(loop); return; }
 
           if (pts?.length === 478) {
-            // Draw face mesh contours instead of raw dots
+            // Draw face mesh contours
             const W = c.width, H = c.height;
             const p = (i: number) => [pts![i].x * W, pts![i].y * H] as [number, number];
 
@@ -214,25 +234,15 @@ export function useFaceLandmarker() {
               ctx.stroke();
             };
 
-            // Face oval
             drawPath([10,338,297,332,284,251,389,356,454,323,361,288,397,365,379,378,400,377,152,148,176,149,150,136,172,58,132,93,234,127,162,21,54,103,67,109,10], true, 0.7);
-            // Left eye
             drawPath([33,7,163,144,145,153,154,155,133,173,157,158,159,160,161,246,33], true, 0.65);
-            // Right eye
             drawPath([263,249,390,373,374,380,381,382,362,398,384,385,386,387,388,466,263], true, 0.65);
-            // Left eyebrow
             drawPath([70,63,105,66,107,55,65,52,53,46], false, 0.5);
-            // Right eyebrow
             drawPath([300,293,334,296,336,285,295,282,283,276], false, 0.5);
-            // Nose bridge
             drawPath([168,6,197,195,5,4,1,19,94], false, 0.5);
-            // Nose bottom
             drawPath([129,98,97,2,326,327,358,279,360,363,440,344,438,457,274,461,462,370,94], false, 0.45);
-            // Lips outer
             drawPath([61,146,91,181,84,17,314,405,321,375,291,409,270,269,267,0,37,39,40,185,61], true, 0.65);
-            // Lips inner
             drawPath([78,95,88,178,87,14,317,402,318,324,308,415,310,311,312,13,82,81,80,191,78], true, 0.5);
-            // Jaw line accent dots at key points
             ctx.fillStyle = "rgba(34,197,94,0.8)";
             for (const i of [234,454,152,10,33,263,1,61,291]) {
               ctx.beginPath();
@@ -241,12 +251,11 @@ export function useFaceLandmarker() {
             }
 
             const frameLuma = lumaCanvasRef.current ? sampleLuma(v, lumaCanvasRef.current) : undefined;
+            if (frameLuma !== undefined) lastLumaRef.current = frameLuma;
+
             const raw = scoreFace(pts, frameLuma);
             if (raw) {
-              // Apply per-frame jitter for variation (same position ≠ same score)
               const jittered = jitterTraits(raw.traits);
-
-              // EMA smooth the jittered traits
               smoothedRef.current = smoothScores(smoothedRef.current, { ...raw, traits: jittered });
 
               const currentPhase = phaseRef.current;
@@ -257,7 +266,6 @@ export function useFaceLandmarker() {
                   lastUpdateRef.current = now;
                   const snap = smoothedRef.current;
                   if (snap) {
-                    // Add visible per-display-tick noise so the number visibly fluctuates
                     const noise = (Math.random() - 0.5) * 0.5;
                     const displayOverall = Math.max(1, Math.min(10, snap.overall + noise));
                     setScores({
@@ -286,6 +294,50 @@ export function useFaceLandmarker() {
                   setSamplesSkipped(skippedRef.current);
                 }
 
+                // ── Live bonus detection ───────────────────────────────────────
+                const fired = firedBonusKeysRef.current;
+
+                const smile = detectSmile(pts);
+                if (smile.detected) {
+                  maxSmileRef.current = Math.max(maxSmileRef.current, smile.strength);
+                  if (!fired.has("smile")) {
+                    fired.add("smile");
+                    const delta = Math.min(0.15 + smile.strength * 0.15, 0.30);
+                    setLiveBonuses(prev => [...prev, { key: "smile", label: "Genuine Smile", delta, traitKey: "harmony" }]);
+                  }
+                }
+
+                const eyeOpen = detectEyeOpen(pts);
+                if (eyeOpen.detected) {
+                  maxEyeRef.current = Math.max(maxEyeRef.current, eyeOpen.strength);
+                  if (!fired.has("eye_contact")) {
+                    fired.add("eye_contact");
+                    const delta = Math.min(0.10 + eyeOpen.strength * 0.10, 0.20);
+                    setLiveBonuses(prev => [...prev, { key: "eye_contact", label: "Eye Contact", delta, traitKey: "canthalTilt" }]);
+                  }
+                }
+
+                if (raw.traits.goldenRatio >= 8.0 && !fired.has("golden_ratio")) {
+                  fired.add("golden_ratio");
+                  setLiveBonuses(prev => [...prev, { key: "golden_ratio", label: "Phi Aligned", delta: 0.20, traitKey: "goldenRatio" }]);
+                }
+
+                if (raw.traits.jawline >= 8.0 && !fired.has("sharp_jaw")) {
+                  fired.add("sharp_jaw");
+                  setLiveBonuses(prev => [...prev, { key: "sharp_jaw", label: "Sharp Mandible", delta: 0.20, traitKey: "jawline" }]);
+                }
+
+                if (raw.traits.symmetry >= 8.5 && !fired.has("mirror_symmetry")) {
+                  fired.add("mirror_symmetry");
+                  setLiveBonuses(prev => [...prev, { key: "mirror_symmetry", label: "Mirror Symmetry", delta: 0.15, traitKey: "symmetry" }]);
+                }
+
+                if (raw.traits.harmony >= 8.0 && !fired.has("perfect_harmony")) {
+                  fired.add("perfect_harmony");
+                  setLiveBonuses(prev => [...prev, { key: "perfect_harmony", label: "Perfect Harmony", delta: 0.15, traitKey: "harmony" }]);
+                }
+
+                // ── Transition to analyzing ────────────────────────────────────
                 if (elapsed >= SCAN_DURATION_MS) {
                   phaseRef.current = "analyzing";
                   setPhase("analyzing");
@@ -296,28 +348,48 @@ export function useFaceLandmarker() {
                     ? aggregateMedian(samplesRef.current)
                     : smoothedRef.current;
 
-                  // Save landmark-only scores before AI call
                   rawScoresRef.current = fallback;
 
+                  const capturedLuma  = lastLumaRef.current;
+                  const capturedSmile = maxSmileRef.current;
+                  const capturedEye   = maxEyeRef.current;
+
                   void (async () => {
-                    let final: Scores | null = null;
+                    let base: Scores | null = null;
+                    let aiHighlights: string[] = [];
+
                     if (frame) {
                       const ai = await rateFromImage(frame);
                       if (ai) {
-                        aiRatingRef.current = ai; // save raw AI output for analytics
-                        final = aiToScores(ai);
+                        aiRatingRef.current = ai;
+                        base = aiToScores(ai);
+                        aiHighlights = ai.highlights ?? [];
                       }
                     }
-                    if (!final) final = fallback;
-                    if (final && mountedRef.current) {
-                      // Apply one-time candy boost to the locked final result
-                      const candy = generateCandy();
-                      const boostedMean = traitMean(final.traits);
-                      const boostedOverall = overallFromMean(boostedMean, candy);
-                      final = { ...final, overall: boostedOverall, elo: Math.round(boostedOverall * 42 + 15) };
+                    if (!base) base = fallback;
+
+                    if (base && mountedRef.current) {
+                      const candy   = generateCandy();
+                      const bonuses = computeBonuses(base.traits, {
+                        luma:         capturedLuma,
+                        smileStrength: capturedSmile,
+                        eyeStrength:   capturedEye,
+                        aiHighlights,
+                      });
+                      const badges = computeBadges(base.traits);
+                      const bonusDelta = bonuses.reduce((s, b) => s + b.delta, 0);
+                      const baseMean   = traitMean(base.traits);
+                      const finalOverall = Math.max(1, Math.min(10, baseMean * 1.2 + 0.4 + candy + bonusDelta));
+                      const final: Scores = {
+                        ...base,
+                        overall: finalOverall,
+                        elo:     Math.round(finalOverall * 42 + 15),
+                        bonuses,
+                        badges,
+                      };
                       phaseRef.current = "complete";
                       setPhase("complete");
-                      setScores({ ...final });
+                      setScores(final);
                     } else if (mountedRef.current) {
                       phaseRef.current = "complete";
                       setPhase("complete");
@@ -359,7 +431,7 @@ export function useFaceLandmarker() {
     videoRef, canvasRef, streamRef,
     retry: start, startScan, resetScan,
     scanProgress, samplesCollected, samplesSkipped,
-    // Available after phase === "complete" — used for analytics
+    liveBonuses,
     rawScores: rawScoresRef.current,
     aiRating: aiRatingRef.current,
   };
