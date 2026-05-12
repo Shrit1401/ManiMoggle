@@ -561,6 +561,15 @@ export function RoomScanView({ roomId, sessionId, playerName, opponent, opponent
     rawScores, aiRating,
   } = useFaceLandmarker();
 
+  // Check if camera is hard-blocked in browser settings vs just dismissed
+  const [camHardBlocked, setCamHardBlocked] = useState(false);
+  useEffect(() => {
+    if (status !== "denied") { setCamHardBlocked(false); return; }
+    navigator.permissions?.query({ name: "camera" as PermissionName })
+      .then(p => setCamHardBlocked(p.state === "denied"))
+      .catch(() => {});
+  }, [status]);
+
   // Start WebRTC immediately — don't wait for camera. Tracks are added once
   // streamReady flips true, which triggers the hook's track sync effect.
   const oppIds = opponentSessionId ? [opponentSessionId] : [];
@@ -699,17 +708,43 @@ export function RoomScanView({ roomId, sessionId, playerName, opponent, opponent
         {(status === "denied" || status === "unsupported" || status === "error") && (
           <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/90 z-20 gap-3 px-6 text-center">
             <span className="text-3xl">📷</span>
-            <p className="font-mono text-[9px] tracking-widest uppercase text-white/50 max-w-xs">
-              {status === "denied" ? "Camera access denied"
-                : status === "unsupported" ? "Camera not supported"
-                : (error ?? "Scanner failed")}
-            </p>
-            {status !== "unsupported" && (
-              <button onClick={retry}
-                className="rounded-full bg-white/10 ring-1 ring-white/20 px-4 py-2
-                  font-mono text-[9px] tracking-widest uppercase text-white">
-                Retry Camera
-              </button>
+            {status === "denied" && camHardBlocked ? (
+              <>
+                <p className="font-mono text-[9px] tracking-widest uppercase text-white/50 max-w-[220px]">
+                  Camera blocked in browser settings
+                </p>
+                <div className="glass rounded-xl px-4 py-3 max-w-[240px] ring-1 ring-white/10">
+                  <p className="font-mono text-[8px] text-white/60 leading-relaxed">
+                    Tap the <span className="text-cyan-300">lock / info icon</span> in your browser's address bar → Site Settings → Camera → Allow, then refresh.
+                  </p>
+                </div>
+                <button
+                  onClick={() => window.location.reload()}
+                  className="rounded-full bg-cyan-500/20 ring-1 ring-cyan-400/40 px-4 py-2
+                    font-mono text-[9px] tracking-widest uppercase text-cyan-300">
+                  Refresh Page
+                </button>
+              </>
+            ) : (
+              <>
+                <p className="font-mono text-[9px] tracking-widest uppercase text-white/50 max-w-xs">
+                  {status === "denied" ? "Camera access needed"
+                    : status === "unsupported" ? "Camera not supported"
+                    : (error ?? "Scanner failed")}
+                </p>
+                {status === "denied" && (
+                  <p className="font-mono text-[8px] text-white/35 max-w-[220px] leading-relaxed">
+                    When prompted, tap <span className="text-white/60">Allow</span> to grant camera access.
+                  </p>
+                )}
+                {status !== "unsupported" && (
+                  <button onClick={retry}
+                    className="rounded-full bg-white/10 ring-1 ring-white/20 px-4 py-2
+                      font-mono text-[9px] tracking-widest uppercase text-white">
+                    {status === "denied" ? "Allow Camera" : "Retry Camera"}
+                  </button>
+                )}
+              </>
             )}
             <button onClick={onDone}
               className="rounded-full bg-rose-500/15 ring-1 ring-rose-400/30 px-4 py-2

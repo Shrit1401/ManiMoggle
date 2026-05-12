@@ -988,6 +988,13 @@ function GroupScanView({ room, sessionId }: {
 
   const [scanStartsAt, setScanStartsAt] = useState<number | null>(null);
   const [countdown, setCountdown]       = useState<number | null>(null);
+  const [camHardBlocked, setCamHardBlocked] = useState(false);
+  useEffect(() => {
+    if (status !== "denied") { setCamHardBlocked(false); return; }
+    navigator.permissions?.query({ name: "camera" as PermissionName })
+      .then(p => setCamHardBlocked(p.state === "denied"))
+      .catch(() => {});
+  }, [status]);
 
   const players  = room.players;
   const otherSessionIds = players.filter(p => p.sessionId !== sessionId).map(p => p.sessionId);
@@ -1174,15 +1181,33 @@ function GroupScanView({ room, sessionId }: {
                   {(status === "denied" || status === "error" || status === "unsupported") && (
                     <div className="absolute inset-0 bg-black/90 flex flex-col items-center justify-center gap-2 px-3 text-center">
                       <span className="text-2xl">📷</span>
-                      <p className="font-mono text-[7px] tracking-widest uppercase text-white/40">
-                        {status === "denied" ? "Camera denied" : "Camera error"}
-                      </p>
-                      {status !== "unsupported" && (
-                        <button onClick={retry}
-                          className="rounded-full bg-white/10 hover:bg-white/18 px-3 py-1.5
-                            font-mono text-[7px] tracking-widest uppercase text-white">
-                          Retry
-                        </button>
+                      {status === "denied" && camHardBlocked ? (
+                        <>
+                          <p className="font-mono text-[7px] tracking-widest uppercase text-white/40">
+                            Camera blocked
+                          </p>
+                          <p className="font-mono text-[6.5px] text-white/35 leading-relaxed max-w-[160px]">
+                            Tap the lock icon in your browser → Site Settings → Camera → Allow, then refresh.
+                          </p>
+                          <button onClick={() => window.location.reload()}
+                            className="rounded-full bg-cyan-500/20 ring-1 ring-cyan-400/40 px-3 py-1.5
+                              font-mono text-[7px] tracking-widest uppercase text-cyan-300">
+                            Refresh
+                          </button>
+                        </>
+                      ) : (
+                        <>
+                          <p className="font-mono text-[7px] tracking-widest uppercase text-white/40">
+                            {status === "denied" ? "Camera needed" : "Camera error"}
+                          </p>
+                          {status !== "unsupported" && (
+                            <button onClick={retry}
+                              className="rounded-full bg-white/10 hover:bg-white/18 px-3 py-1.5
+                                font-mono text-[7px] tracking-widest uppercase text-white">
+                              {status === "denied" ? "Allow Camera" : "Retry"}
+                            </button>
+                          )}
+                        </>
                       )}
                       {!submittedRef.current && (
                         <button onClick={() => {
