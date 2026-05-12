@@ -7,7 +7,7 @@ import type { FaceLandmarker } from "@mediapipe/tasks-vision";
 import {
   scoreFace, smoothScores, aggregateMedian, traitsToVector,
   buildScores, jitterTraits, generateCandy, traitMean,
-  detectSmile, detectEyeOpen, computeBonuses, computeBadges,
+  detectEyeOpen, computeBonuses, computeBadges,
 } from "./face-rating";
 import type { Scores, TraitKey, BonusEvent } from "./face-rating";
 import { rateFromImage, captureVideoFrame } from "./ai-rating";
@@ -96,7 +96,6 @@ export function useFaceLandmarker() {
 
   // Bonus detection tracking
   const firedBonusKeysRef  = useRef<Set<string>>(new Set());
-  const maxSmileRef        = useRef(0);
   const maxEyeRef          = useRef(0);
 
   const calibrationData = useQuery(api.calibration.getCalibration);
@@ -130,7 +129,7 @@ export function useFaceLandmarker() {
     aiPrefetchRef.current     = null;
     aiPrefetchFiredRef.current = false;
     firedBonusKeysRef.current = new Set();
-    maxSmileRef.current      = 0;
+
     maxEyeRef.current        = 0;
     phaseRef.current         = "scanning";
     setPhase("scanning");
@@ -150,7 +149,7 @@ export function useFaceLandmarker() {
     aiPrefetchRef.current     = null;
     aiPrefetchFiredRef.current = false;
     firedBonusKeysRef.current = new Set();
-    maxSmileRef.current      = 0;
+
     maxEyeRef.current        = 0;
     setPhase("live");
     setScores(null);
@@ -172,7 +171,7 @@ export function useFaceLandmarker() {
     aiPrefetchRef.current     = null;
     aiPrefetchFiredRef.current = false;
     firedBonusKeysRef.current = new Set();
-    maxSmileRef.current      = 0;
+
     maxEyeRef.current        = 0;
     setPhase("live");
     setScores(null);
@@ -319,16 +318,6 @@ export function useFaceLandmarker() {
                 // ── Live bonus detection ───────────────────────────────────────
                 const fired = firedBonusKeysRef.current;
 
-                const smile = detectSmile(pts);
-                if (smile.detected) {
-                  maxSmileRef.current = Math.max(maxSmileRef.current, smile.strength);
-                  if (!fired.has("smile")) {
-                    fired.add("smile");
-                    const delta = Math.min(0.15 + smile.strength * 0.15, 0.30);
-                    setLiveBonuses(prev => [...prev, { key: "smile", label: "Genuine Smile", delta, traitKey: "harmony" }]);
-                  }
-                }
-
                 const eyeOpen = detectEyeOpen(pts);
                 if (eyeOpen.detected) {
                   maxEyeRef.current = Math.max(maxEyeRef.current, eyeOpen.strength);
@@ -379,9 +368,8 @@ export function useFaceLandmarker() {
 
                   rawScoresRef.current = fallback;
 
-                  const capturedLuma  = lastLumaRef.current;
-                  const capturedSmile = maxSmileRef.current;
-                  const capturedEye   = maxEyeRef.current;
+                  const capturedLuma = lastLumaRef.current;
+                  const capturedEye  = maxEyeRef.current;
 
                   void (async () => {
                     let base: Scores | null = null;
@@ -416,15 +404,14 @@ export function useFaceLandmarker() {
                     if (base && mountedRef.current) {
                       const candy   = generateCandy();
                       const bonuses = computeBonuses(base.traits, {
-                        luma:         capturedLuma,
-                        smileStrength: capturedSmile,
-                        eyeStrength:   capturedEye,
+                        luma:        capturedLuma,
+                        eyeStrength: capturedEye,
                         aiHighlights,
                       });
                       const badges = computeBadges(base.traits);
                       const bonusDelta = bonuses.reduce((s, b) => s + b.delta, 0);
                       const baseMean   = traitMean(base.traits);
-                      const finalOverall = Math.max(1, Math.min(10, baseMean * 1.2 + 0.4 + candy + bonusDelta));
+                      const finalOverall = Math.max(1, Math.min(10, baseMean * 1.2 - 0.1 + candy + bonusDelta));
                       const final: Scores = {
                         ...base,
                         overall: finalOverall,

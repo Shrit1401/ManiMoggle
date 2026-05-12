@@ -102,16 +102,21 @@ function symmetryScore(lm: LM[]): number {
   return clamp(10 - (dev / pairs.length) * 260, 1, 10);
 }
 
-// ─── 3. Jawline — blended toward neutral floor in poor lighting ───────────────
+// ─── 3. Jawline — sharper angle = higher score; asymmetric to reward definition ─
+// Ideal gonial angle ~110°. Being sharper is rewarded more leniently than being weak.
 
 function jawlineScore(lm: LM[], luma?: number): number {
   const l = angleDeg(lm[234], lm[172], lm[152]);
   const r = angleDeg(lm[454], lm[397], lm[152]);
-  const raw = clamp(9.5 - Math.abs((l + r) / 2 - 112) / 3.2, 1, 10);
+  const avg = (l + r) / 2;
+  const dev = avg - 110; // negative = sharper than ideal, positive = weaker
+  const raw = dev < 0
+    ? clamp(9.5 - Math.abs(dev) / 4.5, 1, 10)  // sharp side: lenient drop
+    : clamp(9.5 - dev / 2.2, 1, 10);             // weak side: steep drop
   if (luma === undefined) return raw;
   const conf = lightingConfidence(luma);
-  // In bad lighting, blend toward a neutral 6.5 so poor rooms don't penalise jaw
-  return raw * conf + 6.5 * (1 - conf);
+  // In bad lighting, blend toward a neutral floor so poor rooms don't kill jaw score
+  return raw * conf + 6.0 * (1 - conf);
 }
 
 // ─── 4. Harmony ───────────────────────────────────────────────────────────────
@@ -196,21 +201,7 @@ function goldenRatioScore(lm: LM[]): number {
   return clamp(s1 * 0.4 + s2 * 0.35 + s3 * 0.25, 1, 10);
 }
 
-// ─── Detectors (for live callouts + bonus computation) ────────────────────────
-
-// Returns strength 0–1; detected when both mouth corners lift above lip center
-export function detectSmile(lm: LM[]): { detected: boolean; strength: number } {
-  const fw = dist(lm[234], lm[454]);
-  if (fw === 0) return { detected: false, strength: 0 };
-  const lipCenterY   = (lm[13].y + lm[14].y) / 2;
-  const leftLift     = lipCenterY - lm[61].y;   // positive when corner above center
-  const rightLift    = lipCenterY - lm[291].y;
-  const avgLift      = (leftLift + rightLift) / 2;
-  const normalized   = avgLift / fw;
-  const THRESHOLD    = 0.008;
-  if (normalized < THRESHOLD) return { detected: false, strength: 0 };
-  return { detected: true, strength: clamp((normalized - THRESHOLD) / 0.03, 0, 1) };
-}
+// ─── Detector — eye aspect ratio (for live callouts + bonus) ─────────────────
 
 // Eye aspect ratio — rewarded when eyes are open and engaged
 export function detectEyeOpen(lm: LM[]): { detected: boolean; strength: number } {
@@ -269,26 +260,17 @@ export function computeBadges(traits: Record<TraitKey, number>): Badge[] {
 }
 
 // ─── Bonus computation ────────────────────────────────────────────────────────
+// No smile bonus — face should be neutral/still. Structural bonuses only.
 
 export function computeBonuses(
   traits: Record<TraitKey, number>,
   opts: {
     luma?:         number;
-    smileStrength?: number;
-    eyeStrength?:   number;
-    aiHighlights?:  string[];
+    eyeStrength?:  number;
+    aiHighlights?: string[];
   } = {},
 ): BonusEvent[] {
   const bonuses: BonusEvent[] = [];
-
-  const smile = opts.smileStrength ?? 0;
-  if (smile > 0) {
-    bonuses.push({
-      key: "smile", label: "Genuine Smile",
-      delta: clamp(0.15 + smile * 0.15, 0.15, 0.30),
-      traitKey: "harmony",
-    });
-  }
 
   const eye = opts.eyeStrength ?? 0;
   if (eye > 0) {
@@ -370,11 +352,12 @@ function computeTraits(lm: LM[], luma?: number): Record<TraitKey, number> {
   };
 }
 
+// Jawline carries the most weight — definition and angle matter most
 const TRAIT_WEIGHTS: Record<TraitKey, number> = {
-  harmony:     0.27,
-  symmetry:    0.25,
-  canthalTilt: 0.18,
-  jawline:     0.17,
+  jawline:     0.22,
+  harmony:     0.25,
+  symmetry:    0.23,
+  canthalTilt: 0.17,
   skin:        0.08,
   goldenRatio: 0.05,
 };
