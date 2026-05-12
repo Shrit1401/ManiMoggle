@@ -582,9 +582,22 @@ export function RoomScanView({ roomId, sessionId, playerName, opponent, opponent
   const sessionIdRef   = useRef(sessionId);
   sessionIdRef.current = sessionId;
 
+  const [countdown, setCountdown] = useState<number | null>(null);
   useEffect(() => {
     if (status !== "ready" || phase !== "live") return;
-    startScan();
+    let n = 5;
+    setCountdown(5);
+    const iv = setInterval(() => {
+      n -= 1;
+      if (n <= 0) {
+        clearInterval(iv);
+        setCountdown(null);
+        startScan();
+      } else {
+        setCountdown(n);
+      }
+    }, 1000);
+    return () => { clearInterval(iv); setCountdown(null); };
   }, [status, phase, startScan]);
 
   useEffect(() => {
@@ -739,6 +752,17 @@ export function RoomScanView({ roomId, sessionId, playerName, opponent, opponent
 
         {/* Live bonus callouts */}
         {phase === "scanning" && <LiveBonusStack bonuses={liveBonuses} />}
+
+        {/* Auto-countdown overlay */}
+        {countdown !== null && (
+          <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/65 z-10">
+            <p className="font-mono text-[8px] tracking-[0.55em] uppercase text-white/45 mb-3">Get Ready</p>
+            <span key={countdown} className="font-mono font-black tabular-nums leading-none animate-countdown-pop"
+              style={{ fontSize: "clamp(90px,22vw,120px)", color: "white", textShadow: "0 0 40px rgba(34,211,238,0.5)" }}>
+              {countdown}
+            </span>
+          </div>
+        )}
 
         {phase === "analyzing" && (
           <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-10">
