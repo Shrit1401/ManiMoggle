@@ -65,6 +65,281 @@ function TraitBars({ traits }: { traits: Record<TraitKey, number> }) {
   );
 }
 
+// ─── Radar chart ──────────────────────────────────────────────────────────────
+
+const RADAR_TRAITS: { key: TraitKey; short: string }[] = [
+  { key: "symmetry",    short: "SYM" },
+  { key: "jawline",     short: "JAW" },
+  { key: "canthalTilt", short: "CNT" },
+  { key: "goldenRatio", short: "PHI" },
+  { key: "skin",        short: "SKN" },
+  { key: "harmony",     short: "HAR" },
+];
+
+function RadarChart({ traits }: { traits: Record<TraitKey, number> }) {
+  const cx = 80, cy = 80, R = 56;
+  const N = RADAR_TRAITS.length;
+  const angle = (i: number) => (i * 2 * Math.PI) / N - Math.PI / 2;
+  const pt = (i: number, r: number) => ({
+    x: cx + r * Math.cos(angle(i)),
+    y: cy + r * Math.sin(angle(i)),
+  });
+  const poly = (r: number) =>
+    Array.from({ length: N }, (_, i) => pt(i, r)).map(p => `${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(" ");
+  const traitPoly = () =>
+    RADAR_TRAITS.map(({ key }, i) => {
+      const r = Math.max(0, ((( traits[key] ?? 1) - 1) / 9)) * R;
+      return pt(i, r);
+    }).map(p => `${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(" ");
+
+  return (
+    <svg width={160} height={160} viewBox="0 0 160 160">
+      {/* Grid rings */}
+      {[0.25, 0.5, 0.75, 1].map(level => (
+        <polygon key={level} points={poly(R * level)}
+          fill="none" stroke="rgba(255,255,255,0.07)" strokeWidth="1" />
+      ))}
+      {/* Axis spokes */}
+      {Array.from({ length: N }, (_, i) => {
+        const end = pt(i, R);
+        return <line key={i} x1={cx} y1={cy} x2={end.x} y2={end.y}
+          stroke="rgba(255,255,255,0.1)" strokeWidth="1" />;
+      })}
+      {/* Filled trait polygon */}
+      <polygon points={traitPoly()}
+        fill="rgba(34,211,238,0.18)" stroke="#22d3ee" strokeWidth="1.5" strokeLinejoin="round" />
+      {/* Vertex dots */}
+      {RADAR_TRAITS.map(({ key }, i) => {
+        const r = Math.max(0, (((traits[key] ?? 1) - 1) / 9)) * R;
+        const p = pt(i, r);
+        return <circle key={key} cx={p.x} cy={p.y} r={2.5} fill="#22d3ee" />;
+      })}
+      {/* Labels */}
+      {RADAR_TRAITS.map(({ key, short }, i) => {
+        const p = pt(i, R + 14);
+        const val = traits[key] ?? 1;
+        return (
+          <text key={key} x={p.x} y={p.y} textAnchor="middle" dominantBaseline="middle"
+            fill={val >= 7 ? "#22d3ee" : val >= 5 ? "#fbbf24" : "rgba(255,255,255,0.35)"}
+            fontSize="6.5" fontFamily="monospace" fontWeight="bold">
+            {short}
+          </text>
+        );
+      })}
+      {/* Per-vertex score label (visible on good traits) */}
+      {RADAR_TRAITS.map(({ key }, i) => {
+        const val = traits[key] ?? 1;
+        if (val < 7) return null;
+        const r = Math.max(0, ((val - 1) / 9)) * R;
+        const p = pt(i, r);
+        return (
+          <text key={`v-${key}`} x={p.x} y={p.y - 5} textAnchor="middle"
+            fill="rgba(34,211,238,0.75)" fontSize="5.5" fontFamily="monospace">
+            {val.toFixed(1)}
+          </text>
+        );
+      })}
+    </svg>
+  );
+}
+
+// ─── Scan analytics panel ─────────────────────────────────────────────────────
+
+type ScanSummary = {
+  framesAccepted: number;
+  framesSkipped:  number;
+  headPoseMean:   { yaw: number; pitch: number; roll: number };
+  maxSmile:       number;
+  maxEye:         number;
+};
+
+function ScanAnalytics({ summaryJson }: { summaryJson: string | null }) {
+  if (!summaryJson) return null;
+  let s: ScanSummary;
+  try { s = JSON.parse(summaryJson); } catch { return null; }
+
+  const total       = s.framesAccepted + s.framesSkipped;
+  const qualityFrac = total > 0 ? s.framesAccepted / total : 0;
+  const avgPoseDeg  = (Math.abs(s.headPoseMean?.yaw ?? 0) + Math.abs(s.headPoseMean?.roll ?? 0)) / 2;
+  const stabilityFrac = Math.max(0, 1 - avgPoseDeg / 25);
+
+  const metrics: { label: string; frac: number; display: string }[] = [
+    { label: "Frames",    frac: qualityFrac,    display: `${s.framesAccepted}/${total}` },
+    { label: "Stability", frac: stabilityFrac,  display: `${(stabilityFrac * 10).toFixed(1)}` },
+    { label: "Smile",     frac: s.maxSmile,     display: `${(s.maxSmile * 10).toFixed(1)}` },
+    { label: "Eyes",      frac: s.maxEye,       display: `${(s.maxEye * 10).toFixed(1)}` },
+  ];
+
+  return (
+    <div className="w-full flex flex-col gap-2">
+      <p className="font-mono text-[6px] tracking-[0.38em] uppercase text-white/28 text-center">Scan Quality</p>
+      <div className="grid grid-cols-4 gap-2">
+        {metrics.map(m => {
+          const color = m.frac >= 0.7 ? "#22d3ee" : m.frac >= 0.4 ? "#fbbf24" : "#f87171";
+          return (
+            <div key={m.label} className="flex flex-col items-center gap-1.5">
+              <div className="w-full h-[3px] rounded-full bg-white/8 overflow-hidden">
+                <div className="h-full rounded-full" style={{ width: `${Math.round(m.frac * 100)}%`, background: color }} />
+              </div>
+              <span className="font-mono text-[5.5px] text-white/35 uppercase tracking-widest leading-none">{m.label}</span>
+              <span className="font-mono text-[7px] tabular-nums leading-none" style={{ color }}>{m.display}</span>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+// ─── Full-screen result screen (post-scan) ────────────────────────────────────
+
+function ResultScreen({
+  scores, name, summaryJson, onContinue,
+}: {
+  scores: Scores; name: string; summaryJson: string | null; onContinue: () => void;
+}) {
+  const [displayVal,  setDisplayVal]  = useState(1.0);
+  const [showDetail,  setShowDetail]  = useState(false);
+  const animRef = useRef<number>(0);
+
+  const finalVal  = scores.overall;
+  const tierClr   = scores.tier.starColor;
+  const tierCode  = scores.tier.code;
+  const baseScore = Math.max(1, finalVal - (scores.bonuses ?? []).reduce((s, b) => s + b.delta, 0));
+
+  useEffect(() => {
+    const start = performance.now();
+    const tick  = (now: number) => {
+      const t = Math.min((now - start) / 1200, 1);
+      const e = t < 0.5 ? 2 * t * t : -1 + (4 - 2 * t) * t;
+      setDisplayVal(1 + (finalVal - 1) * e);
+      if (t < 1) { animRef.current = requestAnimationFrame(tick); }
+      else        { setDisplayVal(finalVal); setTimeout(() => setShowDetail(true), 150); }
+    };
+    animRef.current = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(animRef.current);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  return (
+    <div className="flex flex-col h-full bg-black overflow-y-auto">
+      {/* Header */}
+      <div className="shrink-0 flex items-center justify-between px-4 pt-safe pt-3 pb-2.5 border-b border-white/8">
+        <div className="flex items-center gap-1.5">
+          <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 shrink-0" />
+          <span className="font-mono text-[7px] tracking-[0.3em] uppercase text-emerald-400">Score Locked</span>
+        </div>
+        <div className="flex items-center gap-1.5">
+          <span className="font-mono font-bold text-[9px] text-white/80 uppercase tracking-[0.06em]">{name}</span>
+          <div className="w-6 h-6 rounded-full bg-cyan-500/20 ring-1 ring-cyan-400/35
+            flex items-center justify-center font-mono text-[9px] font-bold text-cyan-300">
+            {name.charAt(0)}
+          </div>
+        </div>
+      </div>
+
+      <div className="flex-1 flex flex-col items-center px-4 pt-5 pb-6 gap-5 overflow-y-auto">
+
+        {/* Big score + tier */}
+        <div className="flex flex-col items-center gap-1">
+          <p className="font-mono text-[6px] tracking-[0.45em] uppercase text-white/28">PSL Score</p>
+          <p className="font-sans font-black tabular-nums leading-none"
+            style={{ fontSize: 76, color: "#22d3ee", textShadow: `0 0 40px ${tierClr}55` }}>
+            {displayVal.toFixed(1)}
+          </p>
+          <div className="flex items-center gap-2">
+            <span className="font-mono text-[11px] tracking-wider uppercase font-bold" style={{ color: tierClr }}>
+              ★ {tierCode}
+            </span>
+            <span className="font-mono text-[8px] text-white/35 uppercase tracking-widest">{scores.level}</span>
+          </div>
+          <div className="flex overflow-hidden rounded-full ring-1 ring-white/12 font-mono text-[7.5px] font-bold mt-1">
+            <div className="flex items-center gap-1 px-2.5 py-1 text-white"
+              style={{ background: "linear-gradient(135deg, rgba(249,115,22,0.85), rgba(245,158,11,0.75))" }}>
+              <span>🌹</span><span>{scores.sub}</span>
+            </div>
+            <div className="w-px bg-white/12 self-stretch" />
+            <div className="flex items-center px-2.5 py-1 text-white"
+              style={{ background: "linear-gradient(135deg, rgba(34,211,238,0.75), rgba(14,165,233,0.8))" }}>
+              {scores.elo} ELO
+            </div>
+          </div>
+        </div>
+
+        {/* DOM / FLAW */}
+        <div className="flex gap-6">
+          <div className="flex flex-col items-center gap-0.5">
+            <span className="font-mono text-[5.5px] text-white/28 uppercase tracking-widest">Dominant</span>
+            <span className="font-mono text-[8px] text-emerald-300">{scores.dom.label}</span>
+          </div>
+          <div className="w-px bg-white/10 self-stretch" />
+          <div className="flex flex-col items-center gap-0.5">
+            <span className="font-mono text-[5.5px] text-white/28 uppercase tracking-widest">Weakness</span>
+            <span className="font-mono text-[8px] text-rose-400">{scores.flaw.label}</span>
+          </div>
+        </div>
+
+        {showDetail && (
+          <>
+            {/* Radar chart */}
+            <div className="flex flex-col items-center gap-1">
+              <p className="font-mono text-[6px] tracking-[0.38em] uppercase text-white/28">Trait Breakdown</p>
+              <RadarChart traits={scores.traits} />
+            </div>
+
+            {/* Scan analytics */}
+            <ScanAnalytics summaryJson={summaryJson} />
+
+            {/* Bonus breakdown */}
+            {(scores.bonuses ?? []).length > 0 && (
+              <div className="w-full flex flex-col gap-1.5 bg-white/[0.035] rounded-2xl px-4 py-3">
+                <p className="font-mono text-[6px] tracking-[0.38em] uppercase text-white/28 mb-0.5">Score Breakdown</p>
+                <div className="flex justify-between">
+                  <span className="font-mono text-[7px] text-white/38 uppercase">Base</span>
+                  <span className="font-mono text-[8px] text-white/55 tabular-nums">{baseScore.toFixed(1)}</span>
+                </div>
+                {(scores.bonuses ?? []).map(b => (
+                  <div key={b.key} className="flex justify-between">
+                    <span className="font-mono text-[7px] text-cyan-300/65">+ {b.label}</span>
+                    <span className="font-mono text-[7px] text-cyan-400 tabular-nums">+{b.delta.toFixed(2)}</span>
+                  </div>
+                ))}
+                <div className="flex justify-between border-t border-white/10 pt-1.5 mt-0.5">
+                  <span className="font-mono text-[7px] text-white/40 uppercase">Final</span>
+                  <span className="font-mono text-[9px] font-bold tabular-nums" style={{ color: tierClr }}>
+                    {finalVal.toFixed(1)}
+                  </span>
+                </div>
+              </div>
+            )}
+
+            {/* Badges */}
+            {(scores.badges ?? []).length > 0 && (
+              <div className="flex flex-wrap gap-1.5 justify-center">
+                {(scores.badges ?? []).map((badge: Badge) => (
+                  <span key={badge.id}
+                    className="font-mono text-[6px] tracking-widest uppercase px-2.5 py-1 rounded-full ring-1"
+                    style={{ color: badge.color, borderColor: `${badge.color}50`, background: `${badge.color}18` }}>
+                    {badge.label}
+                  </span>
+                ))}
+              </div>
+            )}
+
+            {/* Continue */}
+            <button onClick={onContinue}
+              className="w-full rounded-full bg-white/8 hover:bg-white/14 active:scale-[0.97]
+                ring-1 ring-white/15 py-4 font-mono text-[10px] tracking-[0.22em]
+                uppercase text-white transition-all">
+              Continue →
+            </button>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // ─── Live bonus callout chips ─────────────────────────────────────────────────
 
 function LiveBonusStack({ bonuses }: { bonuses: BonusEvent[] }) {
@@ -576,6 +851,7 @@ export function RoomScanView({ roomId, sessionId, playerName, opponent, opponent
   const setPhaseMut    = useMutation(api.players.setPhase);
   const setSnapshotMut = useMutation(api.players.setSnapshot);
   const submittedRef  = useRef(false);
+  const doneCalledRef = useRef(false);
   const [showDone,    setShowDone]    = useState(false);
   const [showReveal,  setShowReveal]  = useState(false);
 
@@ -660,7 +936,10 @@ export function RoomScanView({ roomId, sessionId, playerName, opponent, opponent
       domLabel:  scores.dom.label,
       flawLabel: scores.flaw.label,
     }).then(() => {
-      setTimeout(onDone, 3500);
+      // Auto-advance after 12s if player hasn't pressed Continue
+      setTimeout(() => {
+        if (!doneCalledRef.current) { doneCalledRef.current = true; onDone(); }
+      }, 12_000);
     });
     void saveScanData({
       roomId, sessionId,
@@ -696,9 +975,27 @@ export function RoomScanView({ roomId, sessionId, playerName, opponent, opponent
     };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
+  const handleContinue = useCallback(() => {
+    if (!doneCalledRef.current) { doneCalledRef.current = true; onDone(); }
+  }, [onDone]);
+
   const myScore  = scores?.overall ?? 0;
   const oppScore = opponent?.overall ?? opponent?.liveScore ?? 0;
   const oppReady = opponent?.phase === "done";
+
+  // Full-screen result view replaces split-screen once scan is complete
+  if (phase === "complete" && showReveal && scores) {
+    return (
+      <div className="h-[100dvh] bg-black overflow-hidden">
+        <ResultScreen
+          scores={scores}
+          name={playerName}
+          summaryJson={summaryJson}
+          onContinue={handleContinue}
+        />
+      </div>
+    );
+  }
 
   return (
     <div className="flex flex-col h-[100dvh] bg-black overflow-hidden">
