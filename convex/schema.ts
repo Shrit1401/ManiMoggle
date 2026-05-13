@@ -54,6 +54,8 @@ export default defineSchema({
     // Scan quality metrics
     samplesCollected: v.optional(v.number()),
     samplesSkipped:   v.optional(v.number()),
+    summaryJson:      v.optional(v.string()), // aggregated per-scan stats (~3-5 KB)
+    timelineJson:     v.optional(v.string()), // per-frame measurements (~20-60 KB)
   })
     .index("by_session", ["sessionId"])
     .index("by_room", ["roomId"]),

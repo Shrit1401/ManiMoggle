@@ -30,7 +30,6 @@ interface Props {
   playerName: string;
   opponent: OpponentData | null;
   opponentSessionId?: string | null;
-  spectatorSessionIds?: string[];
   onDone: () => void;
 }
 
@@ -552,32 +551,30 @@ function TimerBar({ phase, scanProgress, myReady, oppReady }: {
 
 // ─── Main component ───────────────────────────────────────────────────────────
 
-export function RoomScanView({ roomId, sessionId, playerName, opponent, opponentSessionId, spectatorSessionIds = [], onDone }: Props) {
+export function RoomScanView({ roomId, sessionId, playerName, opponent, opponentSessionId, onDone }: Props) {
   const {
     status, phase, scores, error,
     videoRef, canvasRef, streamRef,
     retry, startScan,
     scanProgress, samplesCollected, samplesSkipped,
     liveBonuses,
-    rawScores,
+    rawScores, summaryJson, timelineJson,
   } = useFaceLandmarker();
 
-  // Start WebRTC immediately — don't wait for camera. Tracks are added once
-  // streamReady flips true, which triggers the hook's track sync effect.
-  // Include spectators so their PCs aren't pruned when they join to watch.
-  const spectatorKey = spectatorSessionIds.join(",");
+  // Only connect to opponent — no spectators in the peer mesh to keep fighter
+  // upload load O(1) regardless of how many players are spectating.
   const peerIds = useMemo(
-    () => [opponentSessionId, ...spectatorSessionIds].filter((id): id is string => !!id),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [opponentSessionId, spectatorKey],
+    () => (opponentSessionId ? [opponentSessionId] : []),
+    [opponentSessionId],
   );
   const remoteStreams = useWebRTCGroup(roomId, sessionId, peerIds, streamRef, status === "ready");
   const opponentStream = opponentSessionId ? (remoteStreams[opponentSessionId] ?? null) : null;
 
-  const submitScore   = useMutation(api.players.submitScore);
-  const saveScanData  = useMutation(api.players.saveFaceScanData);
-  const setLiveScore  = useMutation(api.players.setLiveScore);
-  const setPhaseMut   = useMutation(api.players.setPhase);
+  const submitScore    = useMutation(api.players.submitScore);
+  const saveScanData   = useMutation(api.players.saveFaceScanData);
+  const setLiveScore   = useMutation(api.players.setLiveScore);
+  const setPhaseMut    = useMutation(api.players.setPhase);
+  const setSnapshotMut = useMutation(api.players.setSnapshot);
   const submittedRef  = useRef(false);
   const [showDone,    setShowDone]    = useState(false);
   const [showReveal,  setShowReveal]  = useState(false);
@@ -625,6 +622,25 @@ export function RoomScanView({ roomId, sessionId, playerName, opponent, opponent
     return () => clearInterval(iv);
   }, [phase, roomId, sessionId, setLiveScore]);
 
+  // Push a snapshot to Convex every 1.5s while camera is ready so spectators
+  // have a live-ish still frame to display (no WebRTC required on their end).
+  useEffect(() => {
+    if (status !== "ready") return;
+    const send = () => {
+      const video = videoRef.current;
+      if (!video || video.readyState < 2 || video.videoWidth === 0) return;
+      const c = document.createElement("canvas");
+      c.width = 200; c.height = 150;
+      const ctx = c.getContext("2d");
+      if (!ctx) return;
+      ctx.save(); ctx.scale(-1, 1); ctx.drawImage(video, -200, 0, 200, 150); ctx.restore();
+      void setSnapshotMut({ roomId, sessionId, snapshot: c.toDataURL("image/jpeg", 0.3) }).catch(() => {});
+    };
+    send();
+    const iv = setInterval(send, 1500);
+    return () => clearInterval(iv);
+  }, [status, videoRef, roomId, sessionId, setSnapshotMut]);
+
   // Auto-submit when scan complete
   useEffect(() => {
     if (phase !== "complete" || !scores || submittedRef.current) return;
@@ -660,6 +676,8 @@ export function RoomScanView({ roomId, sessionId, playerName, opponent, opponent
       finalFlawLabel:   scores.flaw.label,
       samplesCollected,
       samplesSkipped,
+      summaryJson:  summaryJson  ?? undefined,
+      timelineJson: timelineJson ?? undefined,
     }).catch(() => {});
   }, [phase, scores, rawScores, roomId, sessionId, submitScore, saveScanData, onDone, samplesCollected, samplesSkipped]);
 

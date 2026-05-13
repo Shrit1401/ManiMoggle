@@ -32,6 +32,8 @@ export const saveFaceScanData = mutation({
     finalFlawLabel:   v.string(),
     samplesCollected: v.optional(v.number()),
     samplesSkipped:   v.optional(v.number()),
+    summaryJson:      v.optional(v.string()),
+    timelineJson:     v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     await ctx.db.insert("faceScanData", args);

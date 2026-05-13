@@ -483,3 +483,138 @@ export function aggregateMean(samples: number[][]): Scores | null {
 export function traitsToVector(traits: Record<TraitKey, number>): number[] {
   return TRAIT_KEYS.map(k => traits[k]);
 }
+
+// ─── Per-frame raw measurements for analytics ─────────────────────────────────
+
+export interface FrameMetrics {
+  gonialL:      number;  // left gonial angle, degrees
+  gonialR:      number;  // right gonial angle, degrees
+  canthalL:     number;  // left canthal tilt / fw
+  canthalR:     number;  // right canthal tilt / fw
+  thirds:       [number, number, number]; // t1,t2,t3 as fraction of total face height
+  fwhr:         number;  // facial width-to-height ratio (16:9-corrected)
+  interocular:  number;  // inter-canthal / fw
+  lipH:         number;  // lip thickness / fw
+  mouthW:       number;  // mouth width / fw
+  phi:          [number, number, number]; // lower pct, mouthW/noseW, upperH/midH
+  rollAngleRad: number;  // head-roll angle before correction (radians)
+  yawRatio:     number;  // passed in from estimateYaw()
+  luma:         number;  // frame luma 0-255
+  smile:        number;  // smile strength 0-1
+  eyeOpen:      number;  // eye-open strength 0-1
+}
+
+export function computeFrameMetrics(
+  lm: LM[],
+  luma: number,
+  yawRatio: number,
+): FrameMetrics {
+  const fw = dist(lm[234], lm[454]);
+  const rollAngleRad = Math.atan2(lm[263].y - lm[33].y, lm[263].x - lm[33].x);
+  const c = rollCorrect(lm);
+  const cfw = dist(c[234], c[454]);
+
+  const gonialL = angleDeg(c[234], c[172], c[152]);
+  const gonialR = angleDeg(c[454], c[397], c[152]);
+
+  const canthalL = cfw > 0 ? (c[133].y - c[33].y)  / cfw : 0;
+  const canthalR = cfw > 0 ? (c[362].y - c[263].y) / cfw : 0;
+
+  const t1 = Math.abs(c[168].y - c[10].y);
+  const t2 = Math.abs(c[94].y  - c[168].y);
+  const t3 = Math.abs(c[152].y - c[94].y);
+  const fh = t1 + t2 + t3 || 1;
+  const thirds: [number, number, number] = [t1 / fh, t2 / fh, t3 / fh];
+
+  const fwNorm = Math.abs(c[454].x - c[234].x);
+  const fhNorm = Math.abs(c[152].y - c[10].y);
+  const fwhr   = fhNorm > 0 ? (fwNorm / fhNorm) * (16 / 9) : 0;
+  const interocular = cfw > 0 ? dist(c[33], c[263]) / cfw : 0;
+
+  const lipH  = fw > 0 ? dist(lm[13],  lm[14])  / fw : 0;
+  const mouthW = fw > 0 ? dist(lm[61], lm[291]) / fw : 0;
+
+  const totalH  = c[152].y - c[10].y;
+  const lowerH  = c[152].y - c[1].y;
+  const lowerPct = totalH > 0.005 ? lowerH / totalH : 0;
+  const mouthWAbs = Math.abs(c[291].x - c[61].x);
+  const noseW     = Math.abs(c[326].x - c[97].x);
+  const mouthOverNose = noseW > 0.001 ? mouthWAbs / noseW : 0;
+  const upperH = c[168].y - c[10].y;
+  const midH   = c[1].y   - c[168].y;
+  const upperOverMid = midH > 0.001 ? upperH / midH : 0;
+  const phi: [number, number, number] = [lowerPct, mouthOverNose, upperOverMid];
+
+  const sm = detectSmile(lm);
+  const eo = detectEyeOpen(lm);
+
+  return {
+    gonialL: +gonialL.toFixed(3),
+    gonialR: +gonialR.toFixed(3),
+    canthalL: +canthalL.toFixed(4),
+    canthalR: +canthalR.toFixed(4),
+    thirds: [+thirds[0].toFixed(4), +thirds[1].toFixed(4), +thirds[2].toFixed(4)],
+    fwhr: +fwhr.toFixed(4),
+    interocular: +interocular.toFixed(4),
+    lipH: +lipH.toFixed(4),
+    mouthW: +mouthW.toFixed(4),
+    phi: [+phi[0].toFixed(4), +phi[1].toFixed(4), +phi[2].toFixed(4)],
+    rollAngleRad: +rollAngleRad.toFixed(4),
+    yawRatio: +yawRatio.toFixed(4),
+    luma: +luma.toFixed(1),
+    smile: +sm.strength.toFixed(3),
+    eyeOpen: +eo.strength.toFixed(3),
+  };
+}
+
+// ─── Aggregation helpers for analytics summaries ──────────────────────────────
+
+interface FieldStats { mean: number; min: number; max: number; std: number }
+
+function statsFor(values: number[]): FieldStats {
+  if (values.length === 0) return { mean: 0, min: 0, max: 0, std: 0 };
+  const mean = values.reduce((s, v) => s + v, 0) / values.length;
+  const variance = values.reduce((s, v) => s + (v - mean) ** 2, 0) / values.length;
+  return {
+    mean: +mean.toFixed(4),
+    min:  +Math.min(...values).toFixed(4),
+    max:  +Math.max(...values).toFixed(4),
+    std:  +Math.sqrt(variance).toFixed(4),
+  };
+}
+
+export function aggregateFrameStats(
+  frames: FrameMetrics[],
+): Record<string, FieldStats> {
+  if (frames.length === 0) return {};
+  const scalarKeys = [
+    "gonialL", "gonialR", "canthalL", "canthalR",
+    "fwhr", "interocular", "lipH", "mouthW",
+    "rollAngleRad", "yawRatio", "luma", "smile", "eyeOpen",
+  ] as const;
+  const out: Record<string, FieldStats> = {};
+  for (const k of scalarKeys) out[k] = statsFor(frames.map(f => f[k]));
+  for (let i = 0; i < 3; i++) {
+    out[`thirds${i}`] = statsFor(frames.map(f => f.thirds[i]));
+    out[`phi${i}`]    = statsFor(frames.map(f => f.phi[i]));
+  }
+  return out;
+}
+
+export function aggregateBlendshapeStats(
+  frames: { n: string; s: number }[][],
+): Record<string, { mean: number; max: number }> {
+  if (frames.length === 0) return {};
+  const buckets: Record<string, number[]> = {};
+  for (const frame of frames) {
+    for (const { n, s } of frame) {
+      (buckets[n] ??= []).push(s);
+    }
+  }
+  const out: Record<string, { mean: number; max: number }> = {};
+  for (const [name, vals] of Object.entries(buckets)) {
+    const mean = vals.reduce((s, v) => s + v, 0) / vals.length;
+    out[name] = { mean: +mean.toFixed(4), max: +Math.max(...vals).toFixed(4) };
+  }
+  return out;
+}

@@ -6,8 +6,9 @@ import {
   scoreFace, smoothScores, aggregateMean, traitsToVector,
   buildScores, jitterTraits, generateCandy, traitMean,
   detectSmile, detectEyeOpen, computeBonuses, computeBadges,
+  computeFrameMetrics, aggregateFrameStats, aggregateBlendshapeStats,
 } from "./face-rating";
-import type { Scores, TraitKey, BonusEvent } from "./face-rating";
+import type { Scores, TraitKey, BonusEvent, FrameMetrics } from "./face-rating";
 
 export type Status = "idle" | "requesting" | "ready" | "denied" | "unsupported" | "error";
 export type Phase  = "live" | "scanning" | "analyzing" | "complete";
@@ -52,6 +53,41 @@ function faceAreaOk(pts: { x: number; y: number }[]): boolean {
   return (maxX - minX) * (maxY - minY) >= FACE_AREA_MIN;
 }
 
+function faceAreaRatio(pts: { x: number; y: number }[]): number {
+  let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+  for (const p of pts) {
+    if (p.x < minX) minX = p.x;
+    if (p.x > maxX) maxX = p.x;
+    if (p.y < minY) minY = p.y;
+    if (p.y > maxY) maxY = p.y;
+  }
+  return (maxX - minX) * (maxY - minY);
+}
+
+function matrixToEulerDeg(data: number[]): { yaw: number; pitch: number; roll: number } {
+  // 4×4 row-major rotation matrix: data[row*4 + col]
+  const sy = Math.sqrt(data[0] ** 2 + data[4] ** 2);
+  if (sy > 1e-6) {
+    return {
+      roll:  +(Math.atan2(data[9],  data[10]) * 180 / Math.PI).toFixed(2),
+      pitch: +(Math.atan2(-data[8], sy)        * 180 / Math.PI).toFixed(2),
+      yaw:   +(Math.atan2(data[4],  data[0])   * 180 / Math.PI).toFixed(2),
+    };
+  }
+  return {
+    roll:  +(Math.atan2(-data[6], data[5]) * 180 / Math.PI).toFixed(2),
+    pitch: +(Math.atan2(-data[8], sy)      * 180 / Math.PI).toFixed(2),
+    yaw:   0,
+  };
+}
+
+type FrameLogEntry = {
+  t:        number;
+  metrics:  FrameMetrics;
+  headPose: { yaw: number; pitch: number; roll: number } | null;
+  bs:       { n: string; s: number }[];
+};
+
 // ─── Hook ─────────────────────────────────────────────────────────────────────
 
 export function useFaceLandmarker() {
@@ -72,6 +108,9 @@ export function useFaceLandmarker() {
   const scanStartRef     = useRef(0);
   const skippedRef       = useRef(0);
   const lastLumaRef      = useRef<number>(128);
+  const frameLogRef      = useRef<FrameLogEntry[]>([]);
+  const summaryJsonRef   = useRef<string | null>(null);
+  const timelineJsonRef  = useRef<string | null>(null);
 
   // Bonus detection tracking
   const firedBonusKeysRef  = useRef<Set<string>>(new Set());
@@ -97,6 +136,9 @@ export function useFaceLandmarker() {
   const startScan = useCallback(() => {
     if (phaseRef.current !== "live") return;
     samplesRef.current        = [];
+    frameLogRef.current       = [];
+    summaryJsonRef.current    = null;
+    timelineJsonRef.current   = null;
     skippedRef.current        = 0;
     scanStartRef.current      = performance.now();
     firedBonusKeysRef.current = new Set();
@@ -113,6 +155,9 @@ export function useFaceLandmarker() {
   const resetScan = useCallback(() => {
     phaseRef.current          = "live";
     samplesRef.current        = [];
+    frameLogRef.current       = [];
+    summaryJsonRef.current    = null;
+    timelineJsonRef.current   = null;
     skippedRef.current        = 0;
     smoothedRef.current       = null;
     rawScoresRef.current      = null;
@@ -132,6 +177,9 @@ export function useFaceLandmarker() {
     setError(null);
     phaseRef.current          = "live";
     samplesRef.current        = [];
+    frameLogRef.current       = [];
+    summaryJsonRef.current    = null;
+    timelineJsonRef.current   = null;
     skippedRef.current        = 0;
     smoothedRef.current       = null;
     rawScoresRef.current      = null;
@@ -174,6 +222,8 @@ export function useFaceLandmarker() {
           baseOptions: { modelAssetPath: MODEL_URL, delegate: "CPU" },
           runningMode: "VIDEO",
           numFaces: 1,
+          outputFaceBlendshapes: true,
+          outputFacialTransformationMatrixes: true,
         });
       }
       if (!mountedRef.current) return;
@@ -201,7 +251,14 @@ export function useFaceLandmarker() {
           lastTsRef.current = ts;
 
           let pts: { x: number; y: number; z: number }[] | undefined;
-          try { pts = lm.detectForVideo(v, ts)?.faceLandmarks?.[0]; }
+          let detectedBlendshapes: { categoryName: string; score: number }[] | undefined;
+          let detectedMatrix: { data: number[] } | undefined;
+          try {
+            const result = lm.detectForVideo(v, ts);
+            pts                 = result?.faceLandmarks?.[0];
+            detectedBlendshapes = result?.faceBlendshapes?.[0]?.categories;
+            detectedMatrix      = result?.facialTransformationMatrixes?.[0] as { data: number[] } | undefined;
+          }
           catch { rafRef.current = requestAnimationFrame(loop); return; }
 
           if (pts?.length === 478) {
@@ -267,14 +324,29 @@ export function useFaceLandmarker() {
                 const elapsed = performance.now() - scanStartRef.current;
                 setScanProgress(Math.min(elapsed / SCAN_DURATION_MS, 1));
 
-                const lumaVal = frameLuma ?? 128;
-                const lumaOk  = lumaVal >= LUMA_MIN && lumaVal <= LUMA_MAX;
-                const areaOk  = faceAreaOk(pts);
-                const yawOk   = estimateYaw(pts) <= YAW_RATIO_MAX;
+                const lumaVal  = frameLuma ?? 128;
+                const lumaOk   = lumaVal >= LUMA_MIN && lumaVal <= LUMA_MAX;
+                const areaOk   = faceAreaOk(pts);
+                const yawRatio = estimateYaw(pts);
+                const yawOk    = yawRatio <= YAW_RATIO_MAX;
 
                 if (lumaOk && areaOk && yawOk) {
                   samplesRef.current.push(traitsToVector(raw.traits));
                   setSamplesCollected(samplesRef.current.length);
+
+                  // Log full per-frame metrics for analytics (cap at 90 entries)
+                  if (frameLogRef.current.length < 90) {
+                    const bs = detectedBlendshapes
+                      ? detectedBlendshapes.map(c => ({ n: c.categoryName, s: +c.score.toFixed(4) }))
+                      : [];
+                    const headPose = detectedMatrix?.data ? matrixToEulerDeg(detectedMatrix.data) : null;
+                    frameLogRef.current.push({
+                      t: +(performance.now() - scanStartRef.current).toFixed(0),
+                      metrics: computeFrameMetrics(pts, lumaVal, yawRatio),
+                      headPose,
+                      bs,
+                    });
+                  }
                 } else {
                   skippedRef.current += 1;
                   setSamplesSkipped(skippedRef.current);
@@ -338,6 +410,25 @@ export function useFaceLandmarker() {
                   const capturedLuma  = lastLumaRef.current;
                   const capturedSmile = maxSmileRef.current;
                   const capturedEye   = maxEyeRef.current;
+
+                  // Build analytics payload from frame log
+                  const capturedFrameLog = frameLogRef.current;
+                  try {
+                    const poses = capturedFrameLog.map(f => f.headPose).filter(Boolean) as { yaw: number; pitch: number; roll: number }[];
+                    const poseAvg = (key: "yaw" | "pitch" | "roll") =>
+                      poses.length ? +(poses.reduce((s, p) => s + p[key], 0) / poses.length).toFixed(2) : 0;
+                    const summary = {
+                      framesAccepted:  capturedFrameLog.length,
+                      framesSkipped:   skippedRef.current,
+                      metricStats:     aggregateFrameStats(capturedFrameLog.map(f => f.metrics)),
+                      blendshapeStats: aggregateBlendshapeStats(capturedFrameLog.map(f => f.bs)),
+                      headPoseMean:    { yaw: poseAvg("yaw"), pitch: poseAvg("pitch"), roll: poseAvg("roll") },
+                      maxSmile:        +capturedSmile.toFixed(3),
+                      maxEye:          +capturedEye.toFixed(3),
+                    };
+                    summaryJsonRef.current  = JSON.stringify(summary);
+                    timelineJsonRef.current = JSON.stringify(capturedFrameLog);
+                  } catch { /* non-critical — scoring must not fail */ }
 
                   // Brief analyzing pause, then compute final score immediately
                   setTimeout(() => {
@@ -406,6 +497,8 @@ export function useFaceLandmarker() {
     retry: start, startScan, resetScan,
     scanProgress, samplesCollected, samplesSkipped,
     liveBonuses,
-    rawScores: rawScoresRef.current,
+    rawScores:    rawScoresRef.current,
+    summaryJson:  summaryJsonRef.current,
+    timelineJson: timelineJsonRef.current,
   };
 }
