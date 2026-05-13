@@ -17,67 +17,49 @@ function genCode(): string {
   return Array.from({ length: 6 }, () => chars[Math.floor(Math.random() * chars.length)]).join("");
 }
 
-function buildRoundRobin(playerIds: string[]): Bracket {
-  const shuffled = [...playerIds].sort(() => Math.random() - 0.5);
-  const N = shuffled.length;
-  const slots: (string | null)[] = [...shuffled];
-  if (N % 2 !== 0) slots.push(null); // BYE slot for odd player count
-  const P = slots.length;
-  const numRounds = P - 1;
-
-  // Circle algorithm: fix slots[0], rotate the rest
-  const rounds: TMatch[][] = [];
-  for (let r = 0; r < numRounds; r++) {
-    const arranged: (string | null)[] = new Array(P);
-    arranged[0] = slots[0];
-    for (let i = 1; i < P; i++) {
-      arranged[i] = slots[((i - 1 + r) % (P - 1)) + 1];
-    }
-    const matches: TMatch[] = [];
-    for (let i = 0; i < P / 2; i++) {
-      matches.push({ a: arranged[i], b: arranged[P - 1 - i], winner: null, aScore: null, bScore: null });
-    }
-    rounds.push(matches);
-  }
-
-  const standings: Standings = {};
-  for (const p of shuffled) standings[p] = { wins: 0, losses: 0, totalScore: 0 };
-
-  return { players: shuffled, rounds, currentRound: 0, champion: null, format: "roundrobin", standings };
-}
-
 function buildBracket(playerIds: string[]): Bracket {
   const N = playerIds.length;
-  const numRounds = Math.ceil(Math.log2(Math.max(N, 2)));
-  const P = Math.pow(2, numRounds); // next power of 2 >= N
+  if (N === 1) {
+    return { players: playerIds, rounds: [], currentRound: 0, champion: playerIds[0], format: "singleelim" };
+  }
+  const numRounds = Math.ceil(Math.log2(N));
+  const P = Math.pow(2, numRounds);
+  const byes = P - N;
 
-  // Shuffle and pad to P with null
   const shuffled = [...playerIds].sort(() => Math.random() - 0.5);
-  const slots: (string | null)[] = [...shuffled];
-  while (slots.length < P) slots.push(null);
+  const byePlayers    = shuffled.slice(0, byes);
+  const round0Players = shuffled.slice(byes);
+  const round0Count   = round0Players.length / 2;
 
-  // Pre-build all round structures with empty matches
   const rounds: TMatch[][] = [];
   for (let r = 0; r < numRounds; r++) {
-    const count = P / Math.pow(2, r + 1);
+    const count = r === 0 ? round0Count : P / Math.pow(2, r + 1);
     rounds.push(Array.from({ length: count }, () => ({
       a: null, b: null, winner: null, aScore: null, bScore: null,
     })));
   }
 
-  // Fill round 0 from slots and auto-resolve byes
-  for (let i = 0; i < rounds[0].length; i++) {
-    const a = slots[i * 2] ?? null;
-    const b = slots[i * 2 + 1] ?? null;
-    rounds[0][i].a = a;
-    rounds[0][i].b = b;
-    if (!a && !b)   rounds[0][i].winner = null;
-    else if (!b)    rounds[0][i].winner = a;
-    else if (!a)    rounds[0][i].winner = b;
+  for (let i = 0; i < round0Count; i++) {
+    rounds[0][i].a = round0Players[i * 2];
+    rounds[0][i].b = round0Players[i * 2 + 1];
   }
 
-  // Skip forward if entire round 0 is all byes (edge case: N=1)
-  return { players: playerIds, rounds, currentRound: 0, champion: null };
+  // Pre-seat bye players into round 1 slots not reserved for round-0 winners.
+  // First `round0Count` flat slots in round 1 are reserved; the rest get byes.
+  if (numRounds >= 2 && byes > 0) {
+    let byeIdx = 0;
+    let flatSlot = 0;
+    for (let i = 0; i < rounds[1].length; i++) {
+      for (const side of ["a", "b"] as const) {
+        if (flatSlot >= round0Count) {
+          rounds[1][i][side] = byePlayers[byeIdx++] ?? null;
+        }
+        flatSlot++;
+      }
+    }
+  }
+
+  return { players: playerIds, rounds, currentRound: 0, champion: null, format: "singleelim" };
 }
 
 export const create = mutation({
@@ -277,22 +259,18 @@ export const advanceTournamentBracket = mutation({
       .collect();
 
     const currentMatches = bracket.rounds[bracket.currentRound];
-    const isRoundRobin = bracket.format === "roundrobin";
 
     let changed = false;
     for (const match of currentMatches) {
       if (match.winner !== null) continue;
       if (!match.a && !match.b) continue;
       if (match.b === null) {
-        // Bye: auto-advance a (no win/loss credited)
-        match.winner = match.a ?? "__bye__";
-        match.aScore = null;
+        match.winner = match.a;
         changed = true;
         continue;
       }
       if (match.a === null) {
-        match.winner = match.b ?? "__bye__";
-        match.bScore = null;
+        match.winner = match.b;
         changed = true;
         continue;
       }
@@ -306,13 +284,6 @@ export const advanceTournamentBracket = mutation({
         const loserDoc  = match.winner === match.a ? pB : pA;
         await ctx.db.patch(winnerDoc._id, { wins: (winnerDoc.wins ?? 0) + 1 });
         await ctx.db.patch(loserDoc._id,  { losses: (loserDoc.losses ?? 0) + 1 });
-        if (isRoundRobin && bracket.standings) {
-          if (match.a in bracket.standings) bracket.standings[match.a].totalScore += match.aScore;
-          if (match.b in bracket.standings) bracket.standings[match.b].totalScore += match.bScore;
-          if (match.winner in bracket.standings) bracket.standings[match.winner].wins += 1;
-          const loserSid = match.winner === match.a ? match.b : match.a;
-          if (loserSid in bracket.standings) bracket.standings[loserSid].losses += 1;
-        }
         changed = true;
       }
     }
@@ -325,63 +296,28 @@ export const advanceTournamentBracket = mutation({
       return;
     }
 
-    if (isRoundRobin) {
-      if (bracket.currentRound >= bracket.rounds.length - 1) {
-        // All rounds done — determine champion by wins, tiebreak by total score
-        let champ: string | null = null;
-        let maxWins = -1;
-        let maxScore = -1;
-        for (const [sid, s] of Object.entries(bracket.standings ?? {})) {
-          if (s.wins > maxWins || (s.wins === maxWins && s.totalScore > maxScore)) {
-            champ = sid;
-            maxWins = s.wins;
-            maxScore = s.totalScore;
-          }
-        }
-        bracket.champion = champ;
-        await ctx.db.patch(roomId, {
-          tournamentBracket: JSON.stringify(bracket),
-          tournamentStatus: "complete",
-        });
-      } else {
-        // Advance to next round — reset all tournament players
-        bracket.currentRound += 1;
-        for (const p of players) {
-          if (bracket.players.includes(p.sessionId)) {
-            await ctx.db.patch(p._id, {
-              phase: "lobby",
-              overall: undefined, elo: undefined, sub: undefined,
-              tierCode: undefined, tierColor: undefined, level: undefined,
-              domLabel: undefined, flawLabel: undefined, liveScore: undefined,
-            });
-          }
-        }
-        await ctx.db.patch(roomId, { tournamentBracket: JSON.stringify(bracket) });
-      }
-      return;
-    }
-
-    // Legacy single-elimination path (kept for rooms created before round-robin)
-    const winners = currentMatches.map(m => m.winner!);
+    // Final round complete → set champion
     if (bracket.currentRound === bracket.rounds.length - 1) {
-      bracket.champion = winners.filter(Boolean).pop() ?? null;
+      bracket.champion = currentMatches.map(m => m.winner).find(Boolean) ?? null;
       await ctx.db.patch(roomId, {
         tournamentBracket: JSON.stringify(bracket),
         tournamentStatus: "complete",
       });
       return;
     }
+
+    // Advance to next round — fill empty slots with winners, leaving pre-seated byes in place
     bracket.currentRound += 1;
     const nextMatches = bracket.rounds[bracket.currentRound];
-    const nonNullWinners = winners.filter((w): w is string => w !== null && w !== "__bye__");
-    let wi = 0;
+    const winnersQueue = currentMatches
+      .map(m => m.winner)
+      .filter((w): w is string => !!w && w !== "__bye__");
     for (const match of nextMatches) {
-      match.a = nonNullWinners[wi++] ?? null;
-      match.b = nonNullWinners[wi++] ?? null;
-      if (!match.a && !match.b) match.winner = null;
-      else if (!match.b) match.winner = match.a;
-      else if (!match.a) match.winner = match.b;
+      if (match.a === null) match.a = winnersQueue.shift() ?? null;
+      if (match.b === null) match.b = winnersQueue.shift() ?? null;
     }
+
+    // Reset scan state for players advancing to this round
     const nextPlayers = new Set<string>();
     for (const m of nextMatches) {
       if (m.a) nextPlayers.add(m.a);
@@ -393,7 +329,7 @@ export const advanceTournamentBracket = mutation({
           phase: "lobby",
           overall: undefined, elo: undefined, sub: undefined,
           tierCode: undefined, tierColor: undefined, level: undefined,
-          domLabel: undefined, flawLabel: undefined,
+          domLabel: undefined, flawLabel: undefined, liveScore: undefined,
         });
       }
     }

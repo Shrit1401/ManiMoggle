@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useMemo } from "react";
 import { useQuery, useMutation } from "convex/react";
 import { useRouter } from "next/navigation";
 import { api } from "../../../convex/_generated/api";
@@ -445,17 +445,28 @@ function VisualBracket({ bracket, players, sessionId }: {
 }) {
   const rounds    = bracket.rounds;
   const numRounds = rounds.length;
-  const M         = rounds[0].length;
+  if (numRounds === 0) return null;
+  // M = full power-of-2 count for round 0 — drives height regardless of trimming.
+  const M         = Math.pow(2, numRounds) / 2;
   const totalH    = LH + M * (2 * SH + 4);
+  // Whether round 0 was trimmed (byes placed in round 1 instead).
+  const isTrimmed  = rounds[0].length < M;
 
   // Column x-starts
   const colX = (r: number) => r * (SW + HG);
   const champX = numRounds * (SW + HG) + CGAP;
   const totalW = champX + CW + 8;
 
-  // Junction Y of match (r, i) — the point between slot A and slot B, used for connector lines
-  const matchCY = (r: number, i: number) =>
-    LH + (2 * i + 1) * Math.pow(2, r) * SH;
+  // Junction Y of match (r, i) — centre between slot A and slot B.
+  // For trimmed round 0, align each match under its round-1 parent.
+  const matchCY = (r: number, i: number) => {
+    if (r === 0 && isTrimmed) {
+      const parentIdx = Math.floor(i / 2);
+      const parentCY  = LH + (2 * parentIdx + 1) * 2 * SH;
+      return parentCY + (i % 2 === 0 ? -SH : SH);
+    }
+    return LH + (2 * i + 1) * Math.pow(2, r) * SH;
+  };
 
   // Horizontal mid-point for connectors
   const midX = (r: number) => colX(r) + SW + HG / 2;
@@ -475,7 +486,6 @@ function VisualBracket({ bracket, players, sessionId }: {
   const champCY    = totalH / 2;
   const finalRound = rounds[numRounds - 1];
   const finalMatch = finalRound?.[0];
-  const finalCY    = matchCY(numRounds - 1, 0);
 
   return (
     <div style={{ overflowX: "auto", overflowY: "visible", WebkitOverflowScrolling: "touch", margin: "0 -4px" }}>
@@ -486,26 +496,23 @@ function VisualBracket({ bracket, players, sessionId }: {
           style={{ position: "absolute", top: 0, left: 0, pointerEvents: "none", overflow: "visible" }}
           width={totalW} height={Math.max(totalH, CH + LH + 16)}
         >
-          {/* Round-to-round connectors */}
+          {/* Round-to-round connectors: one L-shaped line per existing match */}
           {rounds.map((round, r) => {
             if (r >= numRounds - 1) return null;
-            const pairs = Math.floor(round.length / 2);
-            return Array.from({ length: pairs }, (_, pi) => {
-              const i0 = pi * 2, i1 = pi * 2 + 1;
-              if (i1 >= round.length) return null;
-              const cy0   = matchCY(r, i0);
-              const cy1   = matchCY(r, i1);
-              const nextCY = matchCY(r + 1, pi);
+            return round.map((match, i) => {
+              if (!match.a && !match.b) return null;
+              const parentIdx = Math.floor(i / 2);
+              if (!rounds[r + 1]?.[parentIdx]) return null;
+              const cy     = matchCY(r, i);
+              const nextCY = matchCY(r + 1, parentIdx);
               const rx     = colX(r) + SW;
               const mx     = midX(r);
               const nx     = colX(r + 1);
-              const done  = round[i0]?.winner && round[i1]?.winner;
-              const col   = done ? "rgba(251,191,36,0.4)" : "rgba(255,255,255,0.15)";
+              const col    = match.winner ? "rgba(251,191,36,0.4)" : "rgba(255,255,255,0.15)";
               return (
-                <g key={`cn-${r}-${pi}`}>
-                  <line x1={rx} y1={cy0} x2={mx} y2={cy0} stroke={col} strokeWidth="1.5" strokeLinecap="round" />
-                  <line x1={rx} y1={cy1} x2={mx} y2={cy1} stroke={col} strokeWidth="1.5" strokeLinecap="round" />
-                  <line x1={mx} y1={cy0} x2={mx} y2={cy1} stroke={col} strokeWidth="1.5" strokeLinecap="round" />
+                <g key={`cn-${r}-${i}`}>
+                  <line x1={rx} y1={cy} x2={mx} y2={cy} stroke={col} strokeWidth="1.5" strokeLinecap="round" />
+                  <line x1={mx} y1={cy} x2={mx} y2={nextCY} stroke={col} strokeWidth="1.5" strokeLinecap="round" />
                   <line x1={mx} y1={nextCY} x2={nx} y2={nextCY} stroke={col} strokeWidth="1.5" strokeLinecap="round" />
                 </g>
               );
@@ -625,11 +632,6 @@ function SpectateView({ room, sessionId, onExit }: {
   const activeMatches = currentRound.filter(m => m.winner === null && m.a !== null && m.b !== null);
   const activeFighterIds = activeMatches.flatMap(m => [m.a!, m.b!]);
 
-  const emptyStreamRef = useRef<MediaStream | null>(null);
-  const remoteStreams  = useWebRTCGroup(
-    room._id as Id<"rooms">, sessionId, activeFighterIds, emptyStreamRef, true,
-  );
-
   // Auto-exit when the local player gains a match this round (e.g. next round started)
   const myMatch = currentRound.find(
     m => (m.a === sessionId || m.b === sessionId) && m.winner === null && m.b !== null,
@@ -678,7 +680,6 @@ function SpectateView({ room, sessionId, onExit }: {
               <div key={idx} className="flex gap-1" style={{ flex: "1 0 0", minHeight: 0 }}>
                 {fighters.map(sid => {
                   const player = players.find(p => p.sessionId === sid);
-                  const stream = remoteStreams[sid] ?? null;
                   const snapshot = player?.snapshot;
                   const isScanning = player?.phase === "scanning";
                   const isDone = player?.phase === "done";
@@ -688,7 +689,7 @@ function SpectateView({ room, sessionId, onExit }: {
                     <div key={sid} className="relative flex-1 rounded-2xl overflow-hidden bg-neutral-950 ring-1 ring-white/8"
                       style={{ minHeight: 200 }}>
                       {/* Video / snapshot */}
-                      <RemoteVideo stream={stream} snapshot={snapshot} name={player?.name ?? "?"} />
+                      <RemoteVideo stream={null} snapshot={snapshot} name={player?.name ?? "?"} />
                       {/* Gradient */}
                       <div className="absolute inset-x-0 bottom-0 h-2/3 bg-gradient-to-t from-black/90 via-black/30 to-transparent pointer-events-none" />
                       {/* Score overlay */}
@@ -870,7 +871,10 @@ function TournamentView({ room, sessionId, name, onStartScan }: {
   const players  = room.players;
   const isHost   = room.hostSessionId === sessionId;
   const status   = room.tournamentStatus ?? "lobby";
-  const bracket: Bracket | null = room.tournamentBracket ? JSON.parse(room.tournamentBracket) : null;
+  const bracket: Bracket | null = useMemo(
+    () => (room.tournamentBracket ? JSON.parse(room.tournamentBracket) : null),
+    [room.tournamentBracket]
+  );
 
   // Auto-advance bracket when matches complete
   useEffect(() => {
@@ -1240,7 +1244,7 @@ function GroupScanView({ room, sessionId }: {
     videoRef, canvasRef, streamRef,
     retry, startScan, resetScan,
     scanProgress, samplesCollected, samplesSkipped,
-    rawScores,
+    rawScores, summaryJson, timelineJson,
   } = useFaceLandmarker();
 
   const submitScore      = useMutation(api.players.submitScore);
@@ -1370,6 +1374,8 @@ function GroupScanView({ room, sessionId }: {
       finalFlawLabel:   scores.flaw.label,
       samplesCollected,
       samplesSkipped,
+      summaryJson:  summaryJson  ?? undefined,
+      timelineJson: timelineJson ?? undefined,
     }).catch(() => {});
   }, [phase, scores, rawScores, room._id, sessionId, submitScore, saveScanData, samplesCollected, samplesSkipped]);
 
@@ -1719,11 +1725,6 @@ export function RoomView({ code }: { code: string }) {
   // ── Scanning mode ───────────────────────────────────────────────────────────
   if (scanning) {
     const oppData = opponentId ? opponentData(room.players, opponentId) : null;
-    // All other room players are potential spectators — include them so their
-    // WebRTC PCs aren't pruned when they join to watch.
-    const spectatorSessionIds = room.players
-      .map(p => p.sessionId)
-      .filter(sid => sid !== sessionId && sid !== opponentId);
     return (
       <RoomScanView
         roomId={room._id as Id<"rooms">}
@@ -1731,7 +1732,6 @@ export function RoomView({ code }: { code: string }) {
         playerName={name}
         opponent={oppData}
         opponentSessionId={opponentId}
-        spectatorSessionIds={spectatorSessionIds}
         onDone={() => {
           setScanning(false);
           setOpponentId(null);
