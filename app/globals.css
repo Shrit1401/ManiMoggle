@@ -5,6 +5,27 @@
   --color-foreground: #ededed;
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
+
+  /* ── Brand accent ── */
+  --color-accent:       #22d3ee; /* cyan-400 — primary brand */
+  --color-accent-strong:#06b6d4; /* cyan-500 */
+  --color-accent-deep:  #0891b2; /* cyan-600 */
+  --color-win:          #fbbf24; /* amber-400 — winner only */
+  --color-win-strong:   #f59e0b; /* amber-500 */
+  --color-flaw:         #fb7185; /* rose-400 — errors/flaws */
+  --color-good:         #34d399; /* emerald-400 — positive */
+}
+
+/* ── Shared surface / ring / radius tokens (used via var()) ── */
+:root {
+  --surface-1: rgba(255,255,255,0.04);
+  --surface-2: rgba(255,255,255,0.06);
+  --surface-3: rgba(255,255,255,0.09);
+  --ring-1:    rgba(255,255,255,0.10);
+  --ring-2:    rgba(255,255,255,0.15);
+  --ring-3:    rgba(255,255,255,0.22);
+  --radius-card:  1rem;    /* 16px */
+  --radius-input: 0.75rem; /* 12px */
 }
 
 html, body {

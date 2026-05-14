@@ -66,6 +66,13 @@ export default defineSchema({
     traitOffsets: v.string(), // JSON: Record<TraitKey, number> — mean(aiTrait - rawTrait)
   }).index("by_computed", ["computedAt"]),
 
+  reactions: defineTable({
+    roomCode:   v.string(),
+    emoji:      v.string(),
+    senderName: v.string(),
+    createdAt:  v.number(),
+  }).index("by_room_created", ["roomCode", "createdAt"]),
+
   players: defineTable({
     roomId: v.id("rooms"),
     sessionId: v.string(),

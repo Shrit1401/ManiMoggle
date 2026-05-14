@@ -53,7 +53,7 @@ export function ScanView() {
       {(status === "denied" || status === "unsupported" || status === "error") && (
         <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/85 gap-4 px-8 text-center">
           <span className="text-4xl">📷</span>
-          <p className="font-mono text-[11px] tracking-[0.18em] uppercase text-white/55 max-w-xs">
+          <p className="font-mono text-[10px] tracking-[0.25em] uppercase text-white/55 max-w-xs">
             {status === "denied" && "Camera access denied"}
             {status === "unsupported" && "Camera not supported in this browser"}
             {status === "error" && (error ?? "Scanner initialization failed")}
@@ -61,7 +61,7 @@ export function ScanView() {
           {status !== "unsupported" && (
             <button
               onClick={retry}
-              className="rounded-full bg-white/10 hover:bg-white/20 ring-1 ring-white/20 px-5 py-2 font-mono text-[11px] tracking-widest uppercase text-white transition-colors"
+              className="rounded-full bg-[var(--surface-2)] hover:bg-[var(--surface-3)] ring-1 ring-[var(--ring-2)] px-5 py-2 font-mono text-[10px] tracking-[0.25em] uppercase text-white transition-colors"
             >
               Retry
             </button>

@@ -2,6 +2,7 @@
 
 import type { Scores, TraitKey } from "./face-rating";
 import type { Phase } from "./use-face-landmarker";
+import { HudCornerFrame } from "../../components/ui/HudCornerFrame";
 
 interface Props {
   scores: Scores | null;
@@ -66,27 +67,19 @@ export function Hud({
   return (
     <>
       {/* ── Corner brackets ── */}
-      {(["top-3 left-3", "top-3 right-3", "bottom-3 left-3", "bottom-3 right-3"] as const).map((pos, i) => (
-        <span key={i} className={`absolute ${pos} w-6 h-6 sm:w-7 sm:h-7 pointer-events-none`}
-          style={{
-            borderTop:    i < 2 ? "2px solid rgba(34,211,238,0.45)" : undefined,
-            borderBottom: i >= 2 ? "2px solid rgba(34,211,238,0.45)" : undefined,
-            borderLeft:   i % 2 === 0 ? "2px solid rgba(34,211,238,0.45)" : undefined,
-            borderRight:  i % 2 === 1 ? "2px solid rgba(34,211,238,0.45)" : undefined,
-          }} />
-      ))}
+      <HudCornerFrame size={28} opacity={0.45} />
 
       {/* ── Main score card — top left ── */}
       <div className="absolute top-4 left-4 rounded-2xl glass px-3.5 py-3 sm:px-4 sm:py-3.5
         shadow-[0_8px_40px_rgba(0,0,0,0.6)] pointer-events-none min-w-[160px]">
 
         {phase === "complete" && (
-          <p className="font-mono text-[6.5px] tracking-[0.3em] uppercase text-cyan-400 mb-1">
+          <p className="font-mono text-[10px] tracking-[0.25em] uppercase text-cyan-400 mb-1">
             ✦ Final Score
           </p>
         )}
 
-        <p className="font-mono text-[7px] tracking-[0.25em] uppercase text-white/40 mb-0.5">
+        <p className="font-mono text-[10px] tracking-[0.25em] uppercase text-white/40 mb-0.5">
           PSL Score
         </p>
 
@@ -108,12 +101,12 @@ export function Hud({
         {/* DOM / FLAW */}
         <div className="space-y-[5px] mb-2.5">
           <div className="flex items-center gap-1.5">
-            <span className="font-mono text-[6.5px] tracking-[0.15em] uppercase text-white/30 w-7 shrink-0">DOM</span>
-            <span className="font-mono text-[9px] text-emerald-300 truncate max-w-[110px]">{domLabel}</span>
+            <span className="font-mono text-[10px] tracking-[0.2em] uppercase text-white/30 w-7 shrink-0">DOM</span>
+            <span className="font-mono text-[10px] text-emerald-300 truncate max-w-[110px]">{domLabel}</span>
           </div>
           <div className="flex items-center gap-1.5">
-            <span className="font-mono text-[6.5px] tracking-[0.15em] uppercase text-white/30 w-7 shrink-0">FLAW</span>
-            <span className="font-mono text-[9px] text-rose-400 truncate max-w-[110px]">{flawLabel}</span>
+            <span className="font-mono text-[10px] tracking-[0.2em] uppercase text-white/30 w-7 shrink-0">FLAW</span>
+            <span className="font-mono text-[10px] text-rose-400 truncate max-w-[110px]">{flawLabel}</span>
           </div>
         </div>
 
@@ -130,27 +123,27 @@ export function Hud({
       {/* ── Right panel ── */}
       <div className="absolute top-4 right-4 flex flex-col items-end gap-2 pointer-events-none">
         {/* Your scan badge */}
-        <div className="rounded-full glass px-3 py-[5px] font-mono text-[7px] tracking-[0.22em] uppercase text-white/50">
+        <div className="rounded-full glass px-3 py-[5px] font-mono text-[10px] tracking-[0.25em] uppercase text-white/50">
           Your Scan
         </div>
 
         {/* Name + avatar */}
-        <div className="flex items-center gap-2 glass rounded-2xl px-3 py-2">
+        <div className="flex items-center gap-2 glass rounded-[var(--radius-card)] px-3 py-2">
           <span className="font-mono font-bold text-[11px] text-white uppercase tracking-[0.1em]">{userName}</span>
           <div className="w-7 h-7 rounded-full bg-gradient-to-br from-cyan-500/30 to-cyan-500/10
-            ring-1 ring-cyan-400/30 flex items-center justify-center font-mono text-[10px] font-bold text-cyan-300">
+            ring-1 ring-[var(--ring-2)] flex items-center justify-center font-mono text-[10px] font-bold text-cyan-300">
             {userName.charAt(0)}
           </div>
         </div>
 
         {/* SUB | ELO pills */}
-        <div className="flex overflow-hidden rounded-xl ring-1 ring-white/15 font-mono text-[9px] font-bold tracking-wider">
+        <div className="flex overflow-hidden rounded-[var(--radius-input)] ring-1 ring-[var(--ring-2)] font-mono text-[9px] font-bold tracking-wider">
           <div className="flex items-center gap-1 px-2.5 py-[6px] text-white"
             style={{ background: "linear-gradient(135deg, rgba(249,115,22,0.9), rgba(245,158,11,0.8))" }}>
             <span className="text-[10px]">🌹</span>
             <span>{subStr}</span>
           </div>
-          <div className="w-px bg-white/15 self-stretch" />
+          <div className="w-px bg-[var(--ring-2)] self-stretch" />
           <div className="flex items-center px-2.5 py-[6px] text-white"
             style={{ background: "linear-gradient(135deg, rgba(34,211,238,0.8), rgba(14,165,233,0.85))" }}>
             {eloStr} ELO

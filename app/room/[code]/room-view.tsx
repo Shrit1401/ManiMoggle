@@ -8,6 +8,11 @@ import type { Id } from "../../../convex/_generated/dataModel";
 import { RoomScanView, type OpponentData } from "../../scan/room-scan-view";
 import { useFaceLandmarker } from "../../scan/use-face-landmarker";
 import { useWebRTCGroup } from "../../scan/use-webrtc-group";
+import { ArenaBackdrop } from "../../../components/ui/ArenaBackdrop";
+import { ScreenHeader } from "../../../components/ui/ScreenHeader";
+import { Button } from "../../../components/ui/Button";
+import { ResultPanel } from "../../../components/ui/ResultPanel";
+import { EmojiReactionLayer } from "../../../components/ui/EmojiReactionLayer";
 
 type RoomData = NonNullable<ReturnType<typeof useQuery<typeof api.rooms.getByCode>>>;
 type Player   = RoomData["players"][number];
@@ -100,22 +105,19 @@ function NamePrompt({ code, onDone }: { code: string; onDone: (n: string) => voi
   const [val, setVal] = useState("");
   return (
     <div className="flex-1 flex flex-col items-center justify-center bg-black min-h-[100dvh] gap-6 px-5 py-8 relative overflow-hidden">
-      <div className="absolute inset-0 pointer-events-none">
-        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] h-[600px] rounded-full"
-          style={{ background: "radial-gradient(ellipse, rgba(34,211,238,0.07) 0%, transparent 70%)" }} />
-      </div>
+      <ArenaBackdrop variant="full" />
       <div className="relative z-10 w-full max-w-sm flex flex-col items-center gap-6 animate-fade-up">
         <div className="flex flex-col items-center gap-1.5">
           <div className="flex items-center gap-3 mb-1">
             <div className="h-px w-8 bg-gradient-to-r from-transparent to-cyan-500/60" />
-            <span className="font-mono text-[7px] tracking-[0.5em] uppercase text-white/35">Room · {code}</span>
+            <span className="font-mono text-[10px] tracking-[0.25em] uppercase text-white/35">Room · {code}</span>
             <div className="h-px w-8 bg-gradient-to-l from-transparent to-cyan-500/60" />
           </div>
           <h1 className="font-mono font-black text-[32px] tracking-[0.14em] uppercase text-white leading-none">Enter Arena</h1>
-          <p className="font-mono text-[8px] tracking-widest uppercase text-white/30 mt-1">Choose your fighter name</p>
+          <p className="font-mono text-[10px] tracking-[0.25em] uppercase text-white/30 mt-1">Choose your fighter name</p>
         </div>
         <div className="w-full flex flex-col gap-2">
-          <label className="font-mono text-[7.5px] tracking-[0.35em] uppercase text-white/40 pl-1">Your Name</label>
+          <label className="font-mono text-[10px] tracking-[0.25em] uppercase text-white/40 pl-1">Your Name</label>
           <div className="relative">
             <input
               autoFocus value={val}
@@ -123,31 +125,27 @@ function NamePrompt({ code, onDone }: { code: string; onDone: (n: string) => voi
               onKeyDown={e => { if (e.key === "Enter" && val.trim()) onDone(val.trim()); }}
               placeholder="ENTER NAME"
               autoCapitalize="characters"
-              className="w-full bg-white/[0.05] ring-1 ring-white/12 rounded-2xl px-4 py-4 font-mono text-[15px]
+              className="w-full bg-[var(--surface-1)] ring-1 ring-[var(--ring-1)] rounded-[var(--radius-input)] px-4 py-4 font-mono text-[15px]
                 text-white placeholder:text-white/18 tracking-[0.22em] uppercase outline-none
-                focus:ring-cyan-400/40 focus:bg-white/[0.07] transition-all"
+                focus:ring-cyan-400/40 focus:bg-[var(--surface-2)] transition-all"
               style={{ minHeight: 56 }}
             />
             {val && (
               <div className="absolute right-3 top-1/2 -translate-y-1/2 w-9 h-9 rounded-full
-                bg-gradient-to-br from-cyan-500/35 to-cyan-500/10 ring-1 ring-cyan-400/35
+                bg-gradient-to-br from-cyan-500/35 to-cyan-500/10 ring-1 ring-[var(--ring-2)]
                 flex items-center justify-center font-mono text-[12px] font-bold text-cyan-300">
                 {val.charAt(0)}
               </div>
             )}
           </div>
         </div>
-        <button
+        <Button
+          variant="primary" size="lg"
           onClick={() => { if (val.trim()) onDone(val.trim()); }}
           disabled={!val.trim()}
-          style={{ minHeight: 52 }}
-          className="w-full rounded-2xl py-3.5 font-mono font-bold text-[11px] tracking-[0.22em] uppercase
-            transition-all active:scale-[0.98] disabled:opacity-30 disabled:cursor-not-allowed
-            bg-gradient-to-r from-cyan-500 to-cyan-400 hover:from-cyan-400 hover:to-cyan-300
-            text-black shadow-[0_0_40px_rgba(34,211,238,0.25)]"
         >
           Enter Arena →
-        </button>
+        </Button>
       </div>
     </div>
   );
@@ -262,16 +260,19 @@ function BattleView({ room, sessionId, name, onStartScan }: {
 
   return (
     <div className="flex flex-col bg-black min-h-[100dvh] overflow-hidden">
-      <div className="flex items-center justify-between px-4 pt-safe pt-4 pb-3 shrink-0 border-b border-white/[0.05]">
-        <button onClick={() => router.push("/")} className="font-mono text-[8px] tracking-[0.25em] uppercase text-white/28 hover:text-white/55 transition-colors p-1">← Exit</button>
-        <div className="flex flex-col items-center gap-0.5">
-          <span className="font-mono text-[6.5px] tracking-[0.4em] uppercase text-white/22">⚔ 1v1 Battle</span>
-          <CopyCodeRow code={room.code} />
-        </div>
-        <div className="w-10" />
-      </div>
+      <ArenaBackdrop variant="calm" />
+      <EmojiReactionLayer roomCode={room.code} playerName={name} />
+      <ScreenHeader
+        onExit={() => router.push("/")}
+        title={
+          <div className="flex flex-col items-center gap-0.5">
+            <span className="font-mono text-[10px] tracking-[0.25em] uppercase text-white/35">⚔ 1v1 Battle</span>
+            <CopyCodeRow code={room.code} />
+          </div>
+        }
+      />
 
-      <div className="flex-1 overflow-y-auto">
+      <div className="relative z-10 flex-1 overflow-y-auto">
         <div className="max-w-lg mx-auto px-4 py-5 flex flex-col gap-4">
 
           {!fB && <ShareCard code={room.code} />}
@@ -300,7 +301,7 @@ function BattleView({ room, sessionId, name, onStartScan }: {
               {iAmFighter && (
                 <button onClick={() => rematchMutation({ roomId: room._id as Id<"rooms"> })}
                   style={{ minHeight: 48 }}
-                  className="flex-1 rounded-2xl bg-white/8 hover:bg-white/14 ring-1 ring-white/15
+                  className="flex-1 rounded-[var(--radius-input)] bg-[var(--surface-2)] hover:bg-[var(--surface-3)] ring-1 ring-[var(--ring-2)]
                     py-3 font-mono text-[10px] tracking-[0.22em] uppercase text-white transition-all active:scale-[0.97]">
                   Rematch
                 </button>
@@ -308,14 +309,14 @@ function BattleView({ room, sessionId, name, onStartScan }: {
               {!iAmFighter && players.find(p => p.sessionId === sessionId) && (
                 <button onClick={() => challengeMutation({ roomId: room._id as Id<"rooms">, challengerSessionId: sessionId })}
                   style={{ minHeight: 48 }}
-                  className="flex-1 rounded-2xl bg-amber-400/12 hover:bg-amber-400/20 ring-1 ring-amber-400/28
-                    py-3 font-mono text-[10px] tracking-[0.22em] uppercase text-amber-300 transition-all active:scale-[0.97]">
+                  className="flex-1 rounded-[var(--radius-input)] bg-cyan-500/15 hover:bg-cyan-500/25 ring-1 ring-cyan-400/30
+                    py-3 font-mono text-[10px] tracking-[0.22em] uppercase text-cyan-300 transition-all active:scale-[0.97]">
                   Challenge Winner
                 </button>
               )}
               <button onClick={() => router.push("/")}
                 style={{ minHeight: 48 }}
-                className="rounded-2xl bg-white/[0.03] hover:bg-white/8 ring-1 ring-white/10
+                className="rounded-[var(--radius-input)] bg-[var(--surface-1)] hover:bg-[var(--surface-2)] ring-1 ring-[var(--ring-1)]
                   px-4 py-3 font-mono text-[10px] tracking-[0.18em] uppercase text-white/35 transition-all active:scale-[0.97]">
                 Exit
               </button>
@@ -644,22 +645,21 @@ function SpectateView({ room, sessionId, onExit }: {
 
   return (
     <div className="flex flex-col bg-black min-h-[100dvh] overflow-hidden">
-      {/* Header */}
-      <div className="flex items-center justify-between px-4 pt-safe pt-4 pb-3 shrink-0 border-b border-white/[0.05] z-10">
-        <button onClick={onExit}
-          className="font-mono text-[8px] tracking-[0.25em] uppercase text-white/40 hover:text-white/70 transition-colors p-1">
-          ← Back
-        </button>
-        <div className="flex items-center gap-2">
-          {activeFighterIds.length > 0 && (
-            <span className="w-1.5 h-1.5 rounded-full bg-rose-400 animate-pulse shrink-0" />
-          )}
-          <span className="font-mono text-[7px] tracking-[0.4em] uppercase text-white/40">
-            {activeFighterIds.length > 0 ? `Live · ${roundLabel}` : roundLabel}
-          </span>
-        </div>
-        <div className="w-12" />
-      </div>
+      <ArenaBackdrop variant="calm" />
+      <ScreenHeader
+        onExit={onExit}
+        exitLabel="← Back"
+        title={
+          <div className="flex items-center gap-2">
+            {activeFighterIds.length > 0 && (
+              <span className="w-1.5 h-1.5 rounded-full bg-rose-400 animate-pulse shrink-0" />
+            )}
+            <span className="font-mono text-[10px] tracking-[0.25em] uppercase text-white/40">
+              {activeFighterIds.length > 0 ? `Live · ${roundLabel}` : roundLabel}
+            </span>
+          </div>
+        }
+      />
 
       {/* Content */}
       {activeMatches.length === 0 ? (
@@ -939,14 +939,11 @@ function TournamentView({ room, sessionId, name, onStartScan }: {
     const canStart = players.length >= 2;
     return (
       <div className="flex flex-col bg-black min-h-[100dvh] overflow-hidden">
-        <div className="flex items-center justify-between px-4 pt-safe pt-4 pb-3 shrink-0 border-b border-white/10">
-          <button onClick={() => router.push("/")}
-            className="font-mono text-[8px] tracking-[0.25em] uppercase text-white/50 hover:text-white/80 transition-colors p-1">
-            ← Exit
-          </button>
-          <span className="font-mono text-[8px] tracking-[0.4em] uppercase text-white/45">🏆 Tournament</span>
-          <div className="w-12" />
-        </div>
+        <ArenaBackdrop variant="full" />
+        <ScreenHeader
+          onExit={() => router.push("/")}
+          title="🏆 Tournament"
+        />
 
         <div className="flex-1 overflow-y-auto">
           <div className="max-w-lg mx-auto px-4 py-6 flex flex-col gap-5">
@@ -993,27 +990,24 @@ function TournamentView({ room, sessionId, name, onStartScan }: {
 
             {isHost ? (
               <div className="flex flex-col gap-2">
-                <button
+                <Button
+                  variant={canStart ? "primary" : "secondary"}
+                  size="lg"
                   onClick={() => startTournament({ roomId: room._id as Id<"rooms"> })}
                   disabled={!canStart}
-                  style={{ minHeight: 54 }}
-                  className={`w-full rounded-2xl py-4 font-mono font-bold text-[11px] tracking-[0.22em] uppercase
-                    transition-all active:scale-[0.98]
-                    ${canStart
-                      ? "bg-gradient-to-r from-amber-500 to-amber-400 hover:from-amber-400 hover:to-amber-300 text-black shadow-[0_0_40px_rgba(251,191,36,0.30)]"
-                      : "bg-white/[0.06] ring-1 ring-white/14 text-white/32 cursor-not-allowed"}`}>
+                >
                   {canStart ? `Start Tournament · ${players.length} players` : "Need at least 2 players"}
-                </button>
+                </Button>
                 {!canStart && (
-                  <p className="font-mono text-[7.5px] tracking-widest uppercase text-white/38 text-center">
+                  <p className="font-mono text-[10px] tracking-[0.25em] uppercase text-white/38 text-center">
                     Share the code above to invite friends
                   </p>
                 )}
               </div>
             ) : (
-              <div className="flex items-center gap-2.5 justify-center py-4 rounded-2xl bg-white/[0.04] ring-1 ring-white/10">
-                <span className="w-1.5 h-1.5 rounded-full bg-amber-400/70 animate-pulse shrink-0" />
-                <p className="font-mono text-[8.5px] tracking-[0.28em] uppercase text-white/58">
+              <div className="flex items-center gap-2.5 justify-center py-4 rounded-[var(--radius-card)] bg-[var(--surface-1)] ring-1 ring-[var(--ring-1)]">
+                <span className="w-1.5 h-1.5 rounded-full bg-cyan-400/70 animate-pulse shrink-0" />
+                <p className="font-mono text-[10px] tracking-[0.25em] uppercase text-white/55">
                   Waiting for host to start…
                 </p>
               </div>
@@ -1027,21 +1021,24 @@ function TournamentView({ room, sessionId, name, onStartScan }: {
   // ── Complete ───────────────────────────────────────────────────────────────
   if (status === "complete" && bracket) {
     const champion = players.find(p => p.sessionId === bracket.champion);
+    const CONFETTI = ["#22d3ee","#fbbf24","#f59e0b","#ffffff","#06b6d4"];
 
     return (
       <div className="flex flex-col bg-black min-h-[100dvh] overflow-hidden">
-        <div className="flex items-center justify-between px-4 pt-safe pt-5 pb-3 shrink-0">
-          <button onClick={() => router.push("/")} className="font-mono text-[8px] tracking-[0.25em] uppercase text-white/28 hover:text-white/55 p-1">← Exit</button>
-          <div className="flex flex-col items-center">
-            <span className="font-mono text-[7px] tracking-[0.35em] uppercase text-white/25">
-              🏆 Tournament · Complete
-            </span>
-            <CopyCodeRow code={room.code} />
-          </div>
-          <div className="w-10" />
-        </div>
+        <ArenaBackdrop variant="full" />
+        <ScreenHeader
+          onExit={() => router.push("/")}
+          title={
+            <div className="flex flex-col items-center gap-0.5">
+              <span className="font-mono text-[10px] tracking-[0.25em] uppercase text-white/35">
+                🏆 Tournament · Complete
+              </span>
+              <CopyCodeRow code={room.code} />
+            </div>
+          }
+        />
 
-        {/* ── Confetti ── */}
+        {/* ── Confetti (on-brand palette only) ── */}
         <div className="fixed inset-0 pointer-events-none overflow-hidden z-50">
           {Array.from({ length: 36 }, (_, i) => (
             <div key={i} className="absolute" style={{
@@ -1049,15 +1046,15 @@ function TournamentView({ room, sessionId, name, onStartScan }: {
               top: "-12px",
               width:  `${8 + (i % 4) * 3}px`,
               height: `${8 + (i % 4) * 3}px`,
-              background: ['#22d3ee','#f59e0b','#a78bfa','#34d399','#f87171','#fcd34d','#fb7185'][i % 7],
-              borderRadius: i % 3 === 0 ? '50%' : '3px',
+              background: CONFETTI[i % CONFETTI.length],
+              borderRadius: i % 3 === 0 ? "50%" : "3px",
               transform: `rotate(${(i * 47) % 360}deg)`,
               animation: `confetti-fall ${2.4 + (i % 5) * 0.35}s ease-in ${(i * 0.07) % 2.4}s both`,
             }} />
           ))}
         </div>
 
-        <div className="flex-1 flex flex-col items-center px-4 pb-6 gap-5 overflow-y-auto">
+        <div className="relative z-10 flex-1 flex flex-col items-center px-4 pb-6 gap-5 overflow-y-auto">
 
           {/* ── Champion hero ── */}
           <div className="relative flex flex-col items-center gap-4 pt-8 pb-4 w-full">
@@ -1090,8 +1087,8 @@ function TournamentView({ room, sessionId, name, onStartScan }: {
           {isHost && (
             <button
               onClick={() => resetTournament({ roomId: room._id as Id<"rooms"> })}
-              className="w-full rounded-full bg-white/8 hover:bg-white/14 ring-1 ring-white/15
-                py-3.5 font-mono text-[10px] tracking-[0.22em] uppercase text-white transition-all">
+              className="w-full rounded-full bg-[var(--surface-2)] hover:bg-[var(--surface-3)] ring-1 ring-[var(--ring-2)]
+                py-3.5 font-mono text-[10px] tracking-[0.25em] uppercase text-white transition-all">
               New Tournament
             </button>
           )}
@@ -1112,18 +1109,21 @@ function TournamentView({ room, sessionId, name, onStartScan }: {
 
   return (
     <div className="flex flex-col bg-black min-h-[100dvh] overflow-hidden">
-      <div className="flex items-center justify-between px-4 pt-safe pt-5 pb-3 shrink-0">
-        <button onClick={() => router.push("/")} className="font-mono text-[8px] tracking-[0.25em] uppercase text-white/28 hover:text-white/55 p-1">← Exit</button>
-        <div className="flex flex-col items-center">
-          <span className="font-mono text-[7px] tracking-[0.35em] uppercase text-white/25">
-            🏆 Tournament · {roundLabel}
-          </span>
-          <CopyCodeRow code={room.code} />
-        </div>
-        <div className="w-10" />
-      </div>
+      <ArenaBackdrop variant="calm" />
+      <EmojiReactionLayer roomCode={room.code} playerName={name} />
+      <ScreenHeader
+        onExit={() => router.push("/")}
+        title={
+          <div className="flex flex-col items-center gap-0.5">
+            <span className="font-mono text-[10px] tracking-[0.25em] uppercase text-white/35">
+              🏆 Tournament · {roundLabel}
+            </span>
+            <CopyCodeRow code={room.code} />
+          </div>
+        }
+      />
 
-      <div className="flex-1 flex flex-col px-4 pb-6 gap-4 overflow-y-auto">
+      <div className="relative z-10 flex-1 flex flex-col px-4 pb-6 gap-4 overflow-y-auto">
 
         {/* Visual bracket */}
         <div className="flex flex-col gap-2">
@@ -1193,127 +1193,13 @@ function TournamentView({ room, sessionId, name, onStartScan }: {
   );
 }
 
-// ─── Shared result components (also used by GroupScanView) ───────────────────
-
-type TraitKey = "canthalTilt" | "symmetry" | "jawline" | "harmony" | "skin" | "goldenRatio";
-
-const GROUP_RADAR_TRAITS: { key: TraitKey; short: string }[] = [
-  { key: "symmetry",    short: "SYM" },
-  { key: "jawline",     short: "JAW" },
-  { key: "canthalTilt", short: "CNT" },
-  { key: "goldenRatio", short: "PHI" },
-  { key: "skin",        short: "SKN" },
-  { key: "harmony",     short: "HAR" },
-];
-
-function GroupRadarChart({ traits }: { traits: Record<TraitKey, number> }) {
-  const cx = 80, cy = 80, R = 56;
-  const N = GROUP_RADAR_TRAITS.length;
-  const angle = (i: number) => (i * 2 * Math.PI) / N - Math.PI / 2;
-  const pt = (i: number, r: number) => ({
-    x: cx + r * Math.cos(angle(i)),
-    y: cy + r * Math.sin(angle(i)),
-  });
-  const poly = (r: number) =>
-    Array.from({ length: N }, (_, i) => pt(i, r)).map(p => `${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(" ");
-  const traitPoly = () =>
-    GROUP_RADAR_TRAITS.map(({ key }, i) => {
-      const r = Math.max(0, (((traits[key] ?? 1) - 1) / 9)) * R;
-      return pt(i, r);
-    }).map(p => `${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(" ");
-
-  return (
-    <svg width={160} height={160} viewBox="0 0 160 160">
-      {[0.25, 0.5, 0.75, 1].map(level => (
-        <polygon key={level} points={poly(R * level)}
-          fill="none" stroke="rgba(255,255,255,0.07)" strokeWidth="1" />
-      ))}
-      {Array.from({ length: N }, (_, i) => {
-        const end = pt(i, R);
-        return <line key={i} x1={cx} y1={cy} x2={end.x} y2={end.y}
-          stroke="rgba(255,255,255,0.1)" strokeWidth="1" />;
-      })}
-      <polygon points={traitPoly()}
-        fill="rgba(34,211,238,0.18)" stroke="#22d3ee" strokeWidth="1.5" strokeLinejoin="round" />
-      {GROUP_RADAR_TRAITS.map(({ key }, i) => {
-        const r = Math.max(0, (((traits[key] ?? 1) - 1) / 9)) * R;
-        const p = pt(i, r);
-        return <circle key={key} cx={p.x} cy={p.y} r={2.5} fill="#22d3ee" />;
-      })}
-      {GROUP_RADAR_TRAITS.map(({ key, short }, i) => {
-        const p = pt(i, R + 14);
-        const val = traits[key] ?? 1;
-        return (
-          <text key={key} x={p.x} y={p.y} textAnchor="middle" dominantBaseline="middle"
-            fill={val >= 7 ? "#22d3ee" : val >= 5 ? "#fbbf24" : "rgba(255,255,255,0.35)"}
-            fontSize="6.5" fontFamily="monospace" fontWeight="bold">
-            {short}
-          </text>
-        );
-      })}
-      {GROUP_RADAR_TRAITS.map(({ key }, i) => {
-        const val = traits[key] ?? 1;
-        if (val < 7) return null;
-        const r = Math.max(0, ((val - 1) / 9)) * R;
-        const p = pt(i, r);
-        return (
-          <text key={`v-${key}`} x={p.x} y={p.y - 5} textAnchor="middle"
-            fill="rgba(34,211,238,0.75)" fontSize="5.5" fontFamily="monospace">
-            {val.toFixed(1)}
-          </text>
-        );
-      })}
-    </svg>
-  );
-}
-
-type GroupScanSummary = {
-  framesAccepted: number; framesSkipped: number;
-  headPoseMean: { yaw: number; pitch: number; roll: number };
-  maxSmile: number; maxEye: number;
-};
-
-function GroupScanAnalytics({ summaryJson }: { summaryJson: string | null }) {
-  if (!summaryJson) return null;
-  let s: GroupScanSummary;
-  try { s = JSON.parse(summaryJson); } catch { return null; }
-  const total        = s.framesAccepted + s.framesSkipped;
-  const qualityFrac  = total > 0 ? s.framesAccepted / total : 0;
-  const avgPoseDeg   = (Math.abs(s.headPoseMean?.yaw ?? 0) + Math.abs(s.headPoseMean?.roll ?? 0)) / 2;
-  const stabilityFrac = Math.max(0, 1 - avgPoseDeg / 25);
-  const metrics = [
-    { label: "Frames",    frac: qualityFrac,    display: `${s.framesAccepted}/${total}` },
-    { label: "Stability", frac: stabilityFrac,  display: `${(stabilityFrac * 10).toFixed(1)}` },
-    { label: "Smile",     frac: s.maxSmile,     display: `${(s.maxSmile * 10).toFixed(1)}` },
-    { label: "Eyes",      frac: s.maxEye,       display: `${(s.maxEye * 10).toFixed(1)}` },
-  ];
-  return (
-    <div className="w-full flex flex-col gap-2">
-      <p className="font-mono text-[6px] tracking-[0.38em] uppercase text-white/28 text-center">Scan Quality</p>
-      <div className="grid grid-cols-4 gap-2">
-        {metrics.map(m => {
-          const color = m.frac >= 0.7 ? "#22d3ee" : m.frac >= 0.4 ? "#fbbf24" : "#f87171";
-          return (
-            <div key={m.label} className="flex flex-col items-center gap-1.5">
-              <div className="w-full h-[3px] rounded-full bg-white/8 overflow-hidden">
-                <div className="h-full rounded-full" style={{ width: `${Math.round(m.frac * 100)}%`, background: color }} />
-              </div>
-              <span className="font-mono text-[5.5px] text-white/35 uppercase tracking-widest leading-none">{m.label}</span>
-              <span className="font-mono text-[7px] tabular-nums leading-none" style={{ color }}>{m.display}</span>
-            </div>
-          );
-        })}
-      </div>
-    </div>
-  );
-}
-
 // ─── RemoteVideo — sets srcObject reactively so WebRTC stream renders ────────
 
-function RemoteVideo({ stream, snapshot, name }: {
+function RemoteVideo({ stream, snapshot, name, muted = false }: {
   stream: MediaStream | null;
   snapshot?: string;
   name: string;
+  muted?: boolean;
 }) {
   const ref = useRef<HTMLVideoElement>(null);
 
@@ -1323,7 +1209,7 @@ function RemoteVideo({ stream, snapshot, name }: {
 
   if (stream) {
     return (
-      <video ref={ref} autoPlay playsInline
+      <video ref={ref} autoPlay playsInline muted={muted}
         className="absolute inset-0 w-full h-full"
         style={{ objectFit: "cover", objectPosition: "center 20%" }} />
     );
@@ -1512,18 +1398,17 @@ function GroupScanView({ room, sessionId }: {
   return (
     <div className="relative flex flex-col bg-black h-[100dvh] overflow-hidden">
 
-      {/* ── Minimal header ── */}
-      <div className="flex items-center justify-between px-4 pt-safe pt-3 pb-2.5 shrink-0 z-10 bg-black/40 backdrop-blur-sm border-b border-white/[0.05]">
-        <button onClick={() => router.push("/")}
-          className="font-mono text-[8px] tracking-[0.25em] uppercase text-white/30 hover:text-white/60 transition-colors p-1">
-          ← Exit
-        </button>
-        <div className="flex flex-col items-center gap-0.5">
-          <span className="font-mono text-[6px] tracking-[0.4em] uppercase text-white/25">Group Scan</span>
-          <CopyCodeRow code={room.code} />
-        </div>
-        <div className="w-14" />
-      </div>
+      <ArenaBackdrop variant="calm" />
+      <EmojiReactionLayer roomCode={room.code} playerName={room.players.find(p => p.sessionId === sessionId)?.name ?? "?"} />
+      <ScreenHeader
+        onExit={() => router.push("/")}
+        title={
+          <div className="flex flex-col items-center gap-0.5">
+            <span className="font-mono text-[10px] tracking-[0.25em] uppercase text-white/35">Group Scan</span>
+            <CopyCodeRow code={room.code} />
+          </div>
+        }
+      />
 
       {/* ── Camera grid — fills remaining height perfectly ── */}
       <div
@@ -1610,6 +1495,7 @@ function GroupScanView({ room, sessionId }: {
                     stream={remoteStreams[p.sessionId] ?? null}
                     snapshot={p.snapshot}
                     name={p.name}
+                    muted
                   />
                 </div>
               )}
@@ -1734,19 +1620,16 @@ function GroupScanView({ room, sessionId }: {
           <div className="flex flex-col gap-3 max-w-sm mx-auto">
             <ShareCard code={room.code} />
             {isHost ? (
-              <button
+              <Button
+                variant="primary" size="lg"
                 onClick={() => void startGroupMut({ roomId: room._id as Id<"rooms"> })}
-                style={{ minHeight: 50 }}
-                className="w-full rounded-2xl py-3.5 font-mono font-bold text-[11px] tracking-[0.22em] uppercase
-                  transition-all active:scale-[0.98]
-                  bg-gradient-to-r from-cyan-500 to-cyan-400 hover:from-cyan-400 hover:to-cyan-300
-                  text-black shadow-[0_0_36px_rgba(34,211,238,0.28)]">
+              >
                 Start Scan
-              </button>
+              </Button>
             ) : (
-              <div className="flex items-center gap-2.5 justify-center py-3 rounded-2xl bg-white/[0.04] ring-1 ring-white/10">
-                <span className="w-1.5 h-1.5 rounded-full bg-white/30 animate-pulse shrink-0" />
-                <span className="font-mono text-[8px] tracking-[0.25em] uppercase text-white/50">Waiting for host…</span>
+              <div className="flex items-center gap-2.5 justify-center py-3 rounded-[var(--radius-card)] bg-[var(--surface-1)] ring-1 ring-[var(--ring-1)]">
+                <span className="w-1.5 h-1.5 rounded-full bg-cyan-400/50 animate-pulse shrink-0" />
+                <span className="font-mono text-[10px] tracking-[0.25em] uppercase text-white/50">Waiting for host…</span>
               </div>
             )}
           </div>
@@ -1755,82 +1638,14 @@ function GroupScanView({ room, sessionId }: {
 
       {/* ── Personal result overlay (shown immediately after own scan finishes) ── */}
       {showPersonalResult && scores && (
-        <div className="absolute inset-0 z-40 bg-black/95 overflow-y-auto flex flex-col">
-          {/* Header */}
-          <div className="shrink-0 flex items-center justify-between px-4 pt-safe pt-3 pb-2.5 border-b border-white/8">
-            <div className="flex items-center gap-1.5">
-              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 shrink-0" />
-              <span className="font-mono text-[7px] tracking-[0.3em] uppercase text-emerald-400">Score Locked</span>
-            </div>
-            <div className="flex items-center gap-1.5">
-              <span className="font-mono font-bold text-[9px] text-white/80 uppercase tracking-[0.06em]">
-                {room.players.find(p => p.sessionId === sessionId)?.name ?? ""}
-              </span>
-              <div className="w-6 h-6 rounded-full bg-cyan-500/20 ring-1 ring-cyan-400/35
-                flex items-center justify-center font-mono text-[9px] font-bold text-cyan-300">
-                {(room.players.find(p => p.sessionId === sessionId)?.name ?? "?").charAt(0)}
-              </div>
-            </div>
-          </div>
-
-          <div className="flex-1 flex flex-col items-center px-4 pt-5 pb-6 gap-5">
-            {/* Big score */}
-            <div className="flex flex-col items-center gap-1">
-              <p className="font-mono text-[6px] tracking-[0.45em] uppercase text-white/28">PSL Score</p>
-              <p className="font-sans font-black tabular-nums leading-none"
-                style={{ fontSize: 76, color: "#22d3ee", textShadow: `0 0 40px ${scores.tier.starColor}55` }}>
-                {scores.overall.toFixed(1)}
-              </p>
-              <div className="flex items-center gap-2">
-                <span className="font-mono text-[11px] tracking-wider uppercase font-bold" style={{ color: scores.tier.starColor }}>
-                  ★ {scores.tier.code}
-                </span>
-                <span className="font-mono text-[8px] text-white/35 uppercase tracking-widest">{scores.level}</span>
-              </div>
-              <div className="flex overflow-hidden rounded-full ring-1 ring-white/12 font-mono text-[7.5px] font-bold mt-1">
-                <div className="flex items-center gap-1 px-2.5 py-1 text-white"
-                  style={{ background: "linear-gradient(135deg, rgba(249,115,22,0.85), rgba(245,158,11,0.75))" }}>
-                  <span>🌹</span><span>{scores.sub}</span>
-                </div>
-                <div className="w-px bg-white/12 self-stretch" />
-                <div className="flex items-center px-2.5 py-1 text-white"
-                  style={{ background: "linear-gradient(135deg, rgba(34,211,238,0.75), rgba(14,165,233,0.8))" }}>
-                  {scores.elo} ELO
-                </div>
-              </div>
-            </div>
-
-            {/* DOM / FLAW */}
-            <div className="flex gap-6">
-              <div className="flex flex-col items-center gap-0.5">
-                <span className="font-mono text-[5.5px] text-white/28 uppercase tracking-widest">Dominant</span>
-                <span className="font-mono text-[8px] text-emerald-300">{scores.dom.label}</span>
-              </div>
-              <div className="w-px bg-white/10 self-stretch" />
-              <div className="flex flex-col items-center gap-0.5">
-                <span className="font-mono text-[5.5px] text-white/28 uppercase tracking-widest">Weakness</span>
-                <span className="font-mono text-[8px] text-rose-400">{scores.flaw.label}</span>
-              </div>
-            </div>
-
-            {/* Radar chart */}
-            <div className="flex flex-col items-center gap-1">
-              <p className="font-mono text-[6px] tracking-[0.38em] uppercase text-white/28">Trait Breakdown</p>
-              <GroupRadarChart traits={scores.traits} />
-            </div>
-
-            {/* Scan analytics */}
-            <GroupScanAnalytics summaryJson={summaryJson} />
-
-            {/* View Rankings button */}
-            <button
-              onClick={() => setShowPersonalResult(false)}
-              className="w-full rounded-full bg-white/8 hover:bg-white/14 active:scale-[0.97]
-                ring-1 ring-white/15 py-4 font-mono text-[10px] tracking-[0.22em]
-                uppercase text-white transition-all">
-              View Rankings →
-            </button>
-          </div>
+        <div className="absolute inset-0 z-40 bg-black/95">
+          <ResultPanel
+            scores={scores}
+            name={room.players.find(p => p.sessionId === sessionId)?.name ?? ""}
+            summaryJson={summaryJson}
+            onAction={() => setShowPersonalResult(false)}
+            actionLabel="View Rankings →"
+          />
         </div>
       )}
 
@@ -1871,7 +1686,7 @@ function GroupScanView({ room, sessionId }: {
             {isHost && (
               <button
                 onClick={() => void resetGroup({ roomId: room._id as Id<"rooms"> })}
-                className="mt-2 w-full rounded-full bg-white/8 hover:bg-white/14 ring-1 ring-white/12
+                className="mt-2 w-full rounded-full bg-[var(--surface-2)] hover:bg-[var(--surface-3)] ring-1 ring-[var(--ring-2)]
                   py-3.5 font-mono text-[10px] tracking-[0.25em] uppercase text-white/80 transition-all">
                 Scan Again
               </button>
